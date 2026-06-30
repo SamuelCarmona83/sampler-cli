@@ -42,7 +42,7 @@ Versión actual: 0.1.2
   - sampler search <query> [--project]
   - sampler overview <filepath>
 - Fix de crash en indexación (se removió uso runtime de tree-sitter en parser Python).
-- Simplificación de tablas y presentación de datos (parser Python, queries DB, CLI formats compact/table/json + paths cortos) para reducir tokens leídos por LLM en outputs de search/overview. (default compact, --format, remoción de símbolos ruidosos module/import).
+- Compact default output for search/overview + short paths in project list (min tokens for LLM use). Removed noisy module/import symbols.
 
 ## Restante (prioridad alta)
 

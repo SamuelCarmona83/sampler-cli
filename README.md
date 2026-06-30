@@ -41,8 +41,6 @@ sampler project add myproj /absolute/path --language python
 sampler project list
 sampler index myproj
 sampler search add --project myproj
-sampler search add --project myproj --format table
-sampler search add --project myproj --format json
 sampler overview /absolute/path/file.py
 sampler project remove myproj
 ```
@@ -69,14 +67,9 @@ Nota de estabilidad:
 
 Pendiente inmediato:
 
-- Filtros y paginación en búsqueda (type filters started via clean defaults + --format)
+- Filtros y paginación en búsqueda
 - Comandos `callers`, `usages`, `related`
 - Parsers Go y TypeScript/JavaScript
-
-Nota de tokens/LLM:
-- search y overview usan por defecto formato `compact` (caminos relativos/cortos, sin borders, sin símbolos ruidosos module/import).
-- Usa `--format json` o default para mínimo consumo de tokens cuando el output se pasa a LLMs o agentes.
-- Re-ejecuta `sampler index <proj>` en proyectos existentes para limpiar símbolos históricos ruidosos del índice.
 
 ## Estructura clave
 
