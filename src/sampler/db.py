@@ -266,13 +266,11 @@ class Database:
             return conn.execute(
                 f"""
                 SELECT
-                    s.id,
                     s.type,
                     s.name,
                     s.qualified_name,
                     s.signature,
                     s.start_line,
-                    s.end_line,
                     f.path AS file_path,
                     p.name AS project_name
                 FROM symbols s
@@ -295,13 +293,11 @@ class Database:
             return conn.execute(
                 f"""
                 SELECT
-                    s.id,
                     s.type,
                     s.name,
                     s.qualified_name,
                     s.signature,
                     s.start_line,
-                    s.end_line,
                     f.path AS file_path,
                     p.name AS project_name
                 FROM symbols s

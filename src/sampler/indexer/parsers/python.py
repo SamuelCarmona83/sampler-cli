@@ -9,82 +9,17 @@ class PythonParser(BaseParser):
     language = "python"
 
     def parse(self, content: str, filepath: str) -> tuple[list[dict], list[dict]]:
-        end_line = max(1, len(content.splitlines()))
-
-        module_qualified = f"module::{filepath}"
-        symbols: list[dict] = [
-            {
-                "type": "module",
-                "name": module_qualified,
-                "qualified_name": module_qualified,
-                "signature": None,
-                "docstring": None,
-                "start_line": 1,
-                "end_line": end_line,
-                "metadata": {"filepath": filepath},
-            }
-        ]
+        symbols: list[dict] = []
         relationships: list[dict] = []
 
         try:
             module = ast.parse(content)
         except SyntaxError:
-            # If AST fails, return at least module symbol so indexing can continue.
+            # Syntax error: no symbols extracted for this file (indexing continues).
             return symbols, relationships
 
         for stmt in module.body:
-            if isinstance(stmt, ast.Import):
-                for alias in stmt.names:
-                    import_name = alias.name
-                    import_qn = f"import::{import_name}"
-                    symbols.append(
-                        {
-                            "type": "import",
-                            "name": import_name,
-                            "qualified_name": import_qn,
-                            "signature": None,
-                            "docstring": None,
-                            "start_line": getattr(stmt, "lineno", 1),
-                            "end_line": getattr(stmt, "end_lineno", getattr(stmt, "lineno", 1)),
-                            "metadata": None,
-                        }
-                    )
-                    relationships.append(
-                        {
-                            "source": module_qualified,
-                            "target": import_qn,
-                            "type": "IMPORTS",
-                            "line": getattr(stmt, "lineno", 1),
-                            "metadata": None,
-                        }
-                    )
-
-            elif isinstance(stmt, ast.ImportFrom):
-                if stmt.module:
-                    import_qn = f"import::{stmt.module}"
-                    symbols.append(
-                        {
-                            "type": "import",
-                            "name": stmt.module,
-                            "qualified_name": import_qn,
-                            "signature": None,
-                            "docstring": None,
-                            "start_line": getattr(stmt, "lineno", 1),
-                            "end_line": getattr(stmt, "end_lineno", getattr(stmt, "lineno", 1)),
-                            "metadata": None,
-                        }
-                    )
-                    relationships.append(
-                        {
-                            "source": module_qualified,
-                            "target": import_qn,
-                            "type": "IMPORTS",
-                            "line": getattr(stmt, "lineno", 1),
-                            "metadata": None,
-                        }
-                    )
-
-            elif isinstance(stmt, ast.Assign):
+            if isinstance(stmt, ast.Assign):
                 for target in stmt.targets:
                     if isinstance(target, ast.Name):
                         symbols.append(

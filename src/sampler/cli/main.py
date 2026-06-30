@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import typer
 from rich.console import Console
@@ -24,6 +25,33 @@ def _database() -> Database:
     return db
 
 
+def _get_project_roots() -> dict[str, Path]:
+    """Map project name -> absolute root path for relative path computation."""
+    config = ConfigManager()
+    roots: dict[str, Path] = {}
+    for p in config.list_projects():
+        try:
+            roots[p.name] = Path(p.path).expanduser().resolve()
+        except Exception:
+            pass
+    return roots
+
+
+def _short_path(project_name: str, full_path: str, roots: dict[str, Path]) -> str:
+    """Return shortest useful path for display: relative to project root if possible, else tail or name."""
+    root = roots.get(project_name)
+    if root:
+        try:
+            return str(Path(full_path).resolve().relative_to(root))
+        except Exception:
+            pass
+    # Fallback: last 1-2 path segments to keep output short (token friendly)
+    p = Path(full_path)
+    if len(p.parts) >= 3:
+        return "/".join(p.parts[-2:])
+    return p.name
+
+
 @app.command("version")
 def version() -> None:
     """Show installed sampler version."""
@@ -44,22 +72,20 @@ def project_list() -> None:
     """List registered projects."""
     config = ConfigManager()
     projects = config.list_projects()
-
-    table = Table(title="Projects")
-    table.add_column("Name")
-    table.add_column("Path")
-    table.add_column("Language")
-    table.add_column("Enabled")
+    home = str(Path.home().resolve())
 
     for project in projects:
-        table.add_row(
-            project.name,
-            project.path,
-            project.language,
-            "yes" if project.enabled else "no",
-        )
-
-    console.print(table)
+        try:
+            pp = Path(project.path).resolve()
+            ps = str(pp)
+            if ps.startswith(home):
+                disp = "~" + ps[len(home):]
+            else:
+                parts = pp.parts
+                disp = "/".join(parts[-2:]) if len(parts) > 2 else ps
+        except Exception:
+            disp = project.path
+        console.print(f"{project.name} {disp} {project.language}")
 
 
 @project_app.command("add")
@@ -85,28 +111,82 @@ def project_remove(name: str) -> None:
 
 
 @app.command("search")
-def search(query: str, project: str | None = None) -> None:
-    """Search symbols by name."""
+def search(
+    query: str,
+    project: str | None = typer.Option(None, "--project", "-p", help="Limit to project"),
+    format: str = typer.Option(
+        "compact", "--format", "-f", help="Output format: compact (default, token-efficient), table, json"
+    ),
+) -> None:
+    """Search symbols by name. Use --format compact|json for minimal tokens when feeding LLMs."""
     engine = QueryEngine(db=_database())
     rows = engine.search(query=query, project_name=project)
+    roots = _get_project_roots()
 
-    table = Table(title=f"Search results: {query}")
-    table.add_column("Project")
-    table.add_column("File")
-    table.add_column("Type")
-    table.add_column("Name")
-    table.add_column("Line")
+    if format == "json":
+        lean = []
+        for r in rows:
+            lean.append(
+                {
+                    "project": r["project_name"],
+                    "file": _short_path(r["project_name"], r["file_path"], roots),
+                    "type": r["type"],
+                    "name": r["qualified_name"] or r["name"],
+                    "line": r["start_line"],
+                    "signature": r.get("signature"),
+                }
+            )
+        # minified for lowest token count
+        console.print(json.dumps(lean, separators=(",", ":")))
+        return
 
-    for row in rows:
-        table.add_row(
-            str(row["project_name"]),
-            str(row["file_path"]),
-            str(row["type"]),
-            str(row["qualified_name"] or row["name"]),
-            str(row["start_line"] or "-"),
-        )
+    if format == "table":
+        title = f"Search results: {query}"
+        if project:
+            table = Table(title=title)
+            table.add_column("File")
+            table.add_column("Type")
+            table.add_column("Name")
+            table.add_column("Line")
+            for r in rows:
+                shortf = _short_path(r["project_name"], r["file_path"], roots)
+                name = r["qualified_name"] or r["name"]
+                table.add_row(
+                    shortf,
+                    str(r["type"]),
+                    str(name),
+                    str(r["start_line"] or "-"),
+                )
+        else:
+            table = Table(title=title)
+            table.add_column("Project")
+            table.add_column("File")
+            table.add_column("Type")
+            table.add_column("Name")
+            table.add_column("Line")
+            for r in rows:
+                shortf = _short_path(r["project_name"], r["file_path"], roots)
+                name = r["qualified_name"] or r["name"]
+                table.add_row(
+                    str(r["project_name"]),
+                    shortf,
+                    str(r["type"]),
+                    str(name),
+                    str(r["start_line"] or "-"),
+                )
+        console.print(table)
+        console.print(f"Found {len(rows)} result(s)")
+        return
 
-    console.print(table)
+    # default: compact (token-efficient, LLM friendly, no borders/repeats)
+    for r in rows:
+        shortf = _short_path(r["project_name"], r["file_path"], roots)
+        name = r["qualified_name"] or r["name"]
+        sig = r.get("signature") or ""
+        line = f"{r['project_name']}:{shortf}:{r['start_line'] or '-'} {r['type']} {name}"
+        if sig:
+            line += f"  {sig}"
+        console.print(line)
     console.print(f"Found {len(rows)} result(s)")
 
 
@@ -132,26 +212,72 @@ def index(project: str) -> None:
 
 
 @app.command("overview")
-def overview(filepath: str) -> None:
-    """Show symbols for file."""
+def overview(
+    filepath: str,
+    format: str = typer.Option(
+        "compact", "--format", "-f", help="Output format: compact (default, token-efficient), table, json"
+    ),
+) -> None:
+    """Show symbols for file. Use --format compact|json for minimal tokens when feeding LLMs."""
     engine = QueryEngine(db=_database())
     rows = engine.overview(filepath=filepath)
+    roots = _get_project_roots()
 
-    table = Table(title=f"Overview: {filepath}")
-    table.add_column("Project")
-    table.add_column("Type")
-    table.add_column("Name")
-    table.add_column("Line")
+    # For overview the input filepath is known; compute a short display version once
+    # (we don't know project for sure, so use best-effort short from any root or tail)
+    disp_path = filepath
+    for root in roots.values():
+        try:
+            disp_path = str(Path(filepath).resolve().relative_to(root))
+            break
+        except Exception:
+            continue
+    if disp_path == filepath:
+        p = Path(filepath)
+        disp_path = "/".join(p.parts[-2:]) if len(p.parts) >= 3 else p.name
 
-    for row in rows:
-        table.add_row(
-            str(row["project_name"]),
-            str(row["type"]),
-            str(row["qualified_name"] or row["name"]),
-            str(row["start_line"] or "-"),
-        )
+    if format == "json":
+        lean = []
+        for r in rows:
+            lean.append(
+                {
+                    "project": r["project_name"],
+                    "file": disp_path,
+                    "type": r["type"],
+                    "name": r["qualified_name"] or r["name"],
+                    "line": r["start_line"],
+                    "signature": r.get("signature"),
+                }
+            )
+        console.print(json.dumps(lean, separators=(",", ":")))
+        return
 
-    console.print(table)
+    if format == "table":
+        table = Table(title=f"Overview: {disp_path}")
+        table.add_column("Project")
+        table.add_column("Type")
+        table.add_column("Name")
+        table.add_column("Line")
+        for r in rows:
+            name = r["qualified_name"] or r["name"]
+            table.add_row(
+                str(r["project_name"]),
+                str(r["type"]),
+                str(name),
+                str(r["start_line"] or "-"),
+            )
+        console.print(table)
+        console.print(f"Found {len(rows)} symbol(s)")
+        return
+
+    # default: compact (ultra lean for file-focused view: no repeated file path)
+    for r in rows:
+        name = r["qualified_name"] or r["name"]
+        sig = r.get("signature") or ""
+        line = f"{r['start_line'] or '-'}: {r['type']} {name}"
+        if sig:
+            line += f"  {sig}"
+        console.print(line)
     console.print(f"Found {len(rows)} symbol(s)")
 
 
