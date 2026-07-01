@@ -1,15 +1,14 @@
 # Sampler
 
-**Token-efficient CLI for indexing and searching code symbols across multiple projects.**
+Token-efficient CLI for indexing and searching code symbols across multiple projects.
 
-Current version: 0.2.1
+Current version: 0.3.0
 
-Designed for humans and LLMs/agents: default outputs are compact, single-line, with short paths and no noisy table formatting.
+Designed for humans and agents: compact default output, short paths, and low-noise symbol views.
 
 ## Requirements
 
 - Python 3.11+
-- (Optional) Go, if you plan to use Go parser support in the future
 
 ## Installation
 
@@ -17,118 +16,99 @@ Designed for humans and LLMs/agents: default outputs are compact, single-line, w
 pip install sampler-cli
 ```
 
-For development (tests, linters, etc.):
+Development setup:
 
 ```bash
 pip install -e '.[dev]'
+```
+
+Semantic stack (TF-IDF + local hash fallback):
+
+```bash
+pip install -e '.[semantic]'
 ```
 
 ## Quick Start
 
 ```bash
 sampler init
-sampler project add myproj /absolute/path/to/project --language python
-sampler project list
+sampler project add myproj /absolute/path/to/project --language auto
 sampler index myproj
-sampler search add --project myproj
-sampler overview /absolute/path/to/project/some/file.py
+sampler search retry --project myproj
 sampler symbols myproj
+sampler overview src/main.py
 ```
 
-## Examples with Output
+## Command Overview
 
-**List projects (compact):**
-```bash
-$ sampler project list
-myproj /home/user/projects/myproj
-demo   ~/work/demo
-```
+Core:
+- `sampler version`
+- `sampler init`
+- `sampler index <project>`
+- `sampler search <query> [--project <name>] [--type <t>] [--limit <n>] [--semantic] [--style plain|bars]`
+- `sampler search-all <query> [--type <t>] [--limit <n>]`
+- `sampler symbols <project> [--type <t>] [--limit <n>]`
+- `sampler overview <filepath> [--style plain|bars]`
 
-**Search (default compact, LLM-friendly):**
+Relationships:
+- `sampler callers <symbol> [--project <name>]`
+- `sampler usages <symbol> [--project <name>]`
+- `sampler related <symbol> [--project <name>] [--style plain|bars]`
+
+Project management:
+- `sampler project add <name> <path> --language <python|go|typescript|javascript|auto>`
+- `sampler project update <name> [--path <abs-path>] [--language <lang>]`
+- `sampler project list`
+- `sampler project deps <name>`
+- `sampler project remove <name>`
+
+Semantic and analysis:
+- `sampler embed <project> [--batch-size <n>]`
+- `sampler stale-code <project> [--limit <n>]`
+
+## Semantic Search Backend
+
+`sampler search --semantic` uses:
+
+1. TF-IDF scoring over structured per-symbol text (`Function/File/Arguments/Docstring`).
+2. Hash-fingerprint fallback backend (fully local, deterministic, no model provider dependency).
+
+`sampler embed` precomputes hash fingerprints into SQLite and shows a progress bar.
+
+## Language Support
+
+- Python parser: stdlib AST (stable)
+- Go parser: tree-sitter-go (real extraction)
+- TypeScript/JavaScript parser: tree-sitter-typescript (real extraction)
+- `--language auto`: per-file language detection for monorepos/multi-language projects
+
+## Stale Code Detection
+
+`sampler stale-code <project>` reports candidate stale functions/methods where:
+
+- function is called from test files
+- function has zero non-test callers in project call graph
+
+This is heuristic signal, not guaranteed dead-code proof.
+
+## Examples
+
 ```bash
 $ sampler search worker --project myproj
 myproj:src/tasks/celery_app.py:70 function on_worker_ready  def on_worker_ready(sender)
-```
 
-**List all symbols for a project:**
-```bash
-$ sampler symbols myproj --type function --limit 5
-myproj:src/utils.py:10 function helper  def helper(x)
-myproj:src/models.py:25 function validate  def validate(data)
+$ sampler related ConfigManager --project myproj --style bars
+myproj:src/config.py:24-105 class ConfigManager  [parent]
 ...
+
+$ sampler stale-code myproj
+myproj:src/utils/retry.py:12-28 function retry_request  test_callers=2 non_test_callers=0  [tests.test_retry.test_retry_request]
 ```
 
-**Overview of a file (supports relative paths):**
-```bash
-$ sampler overview src/app.py
-12: function main  def main()
-25: class App  class App
-```
+## Data Location
 
-If the file has no indexed symbols (or was never indexed):
-```bash
-$ sampler overview nonexistent.py
-No symbols found for file: nonexistent.py
-Tip: Make sure the project is registered with 'sampler project add' and indexed with 'sampler index <project>'.
-The path must match a file that was indexed (relative paths are resolved to absolute).
-```
-
-## Why "project add" is required
-
-- `sampler project add <name> <path>` registers the project in `~/.sampler/config.yaml`.
-- `index` looks up the project there to know the root path and language.
-- Without it, commands like `index`, `symbols`, and filtered searches will fail with a clear "not found" message and usage hint.
-- The actual symbol data lives in the SQLite DB (`~/.sampler/graph.db`), but registration is the control plane.
-
-You can have data in the DB without the config entry (e.g. after `project remove`), but you won't be able to re-index or easily manage it.
-
-## Relative Paths
-
-- `overview` now resolves relative paths against the current working directory (e.g. `sampler overview ./src/app.py` or `sampler overview ../other/file.py`).
-- Stored paths are absolute (resolved at index time), so the resolution makes overview work naturally.
-- Other file-based commands behave similarly where applicable.
-
-## Error Messages & Help
-
-We try to give actionable errors:
-
-- Unknown project → tells you the exact `project add` command to run and suggests `project list`.
-- File with no symbols → clear "No symbols found" + tips.
-- Typer automatically shows command usage and available options on invalid arguments.
-
-Run any command with `--help` for full details (e.g. `sampler search --help`, `sampler symbols --help`).
-
-## Current Features
-
-- Global config in `~/.sampler/config.yaml`
-- Project management (`add`, `list`, `remove`)
-- Incremental indexing with file hashing (Python AST-based parser)
-- Compact, token-efficient output by default (great for LLMs)
-- Search with type filters and limits
-- `search-all` across every registered project
-- `symbols <project>` to dump/list symbols for a project
-- `overview <file>` (relative paths supported)
-- Basic relationship extraction (CALLS, CONTAINS)
-
-## Stability Note
-
-- Python parser uses stdlib `ast` (we switched from tree-sitter-python after native crashes on macOS ARM during real indexing).
-- Go and TypeScript/JavaScript parsers are stubs for now (return no symbols).
-
-## Project Structure
-
-```
-src/sampler/
-├── cli/main.py          # Typer commands (search, overview, symbols, index, project ...)
-├── config.py            # YAML config manager
-├── db.py                # SQLite layer
-├── indexer/
-│   ├── builder.py
-│   ├── discover.py
-│   ├── store.py
-│   └── parsers/python.py
-└── query/engine.py
-```
+- Config: `~/.sampler/config.yaml`
+- DB: `~/.sampler/graph.db`
 
 ## Running Tests
 
@@ -136,10 +116,7 @@ src/sampler/
 pytest -q
 ```
 
-## Roadmap Highlights (see TODO.md and PLAN.md)
+## Notes
 
-- Cross-file relation improvements
-- Better call graph queries (`callers`, `usages`, ...)
-- Real Go / TypeScript parsers
-- Semantic search + MCP server (for agents)
-- More context-generation helpers
+- Compact output is default by design (token-efficient for agent workflows).
+- For broader roadmap details, see `TODO.md` and `PLAN.md`.

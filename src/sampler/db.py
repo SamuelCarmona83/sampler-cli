@@ -505,6 +505,7 @@ class Database:
                     s.start_line,
                     s.end_line,
                     f.path AS file_path,
+                    f.last_indexed,
                     p.name AS project_name
                 FROM symbols s
                 JOIN files f ON s.file_id = f.id
@@ -538,6 +539,7 @@ class Database:
     def get_embeddings_for_project(self, project_name: str) -> list[sqlite3.Row]:
         sql = """
                 SELECT
+                    e.symbol_id AS id,
                     e.symbol_id,
                     e.model,
                     e.dim,
@@ -559,3 +561,37 @@ class Database:
                 """
         with self.connect() as conn:
             return conn.execute(sql, (project_name,)).fetchall()
+
+    def get_project_call_edges(self, project_name: str) -> list[sqlite3.Row]:
+        """Return CALLS edges within project, with caller/target symbol + file context.
+
+        Used by stale-code detection to identify functions called only from tests.
+        """
+        sql = """
+                SELECT
+                    src.id AS source_id,
+                    src.type AS source_type,
+                    src.name AS source_name,
+                    src.qualified_name AS source_qualified_name,
+                    src.start_line AS source_start_line,
+                    src_file.path AS source_file_path,
+                    tgt.id AS target_id,
+                    tgt.type AS target_type,
+                    tgt.name AS target_name,
+                    tgt.qualified_name AS target_qualified_name,
+                    tgt.start_line AS target_start_line,
+                    tgt.end_line AS target_end_line,
+                    tgt_file.path AS target_file_path
+                FROM relationships r
+                JOIN symbols src ON r.source_id = src.id
+                JOIN symbols tgt ON r.target_id = tgt.id
+                JOIN files src_file ON src.file_id = src_file.id
+                JOIN files tgt_file ON tgt.file_id = tgt_file.id
+                JOIN projects src_project ON src_file.project_id = src_project.id
+                JOIN projects tgt_project ON tgt_file.project_id = tgt_project.id
+                WHERE r.type = 'CALLS'
+                  AND src_project.name = ?
+                  AND tgt_project.name = ?
+                """
+        with self.connect() as conn:
+            return conn.execute(sql, (project_name, project_name)).fetchall()

@@ -1,6 +1,6 @@
 [project]
 name = "sampler-cli"
-version = "0.2.1"
+version = "0.3.0"
 description = "Token-efficient CLI for indexing and searching code symbols (Python-first, designed for minimal LLM/agent context size)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -36,9 +36,10 @@ dev = [
     "ruff>=0.5.0",
     "mypy>=1.7.0",
     "numpy>=1.26.0",
+    "scikit-learn>=1.4.0",
 ]
 mcp = ["fastmcp>=0.1.0"]
-semantic = ["sentence-transformers>=2.2.0", "numpy>=1.26.0"]
+semantic = ["numpy>=1.26.0", "scikit-learn>=1.4.0"]
 
 [project.scripts]
 sampler = "sampler.cli.main:app"

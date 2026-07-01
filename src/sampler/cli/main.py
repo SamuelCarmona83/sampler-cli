@@ -185,7 +185,7 @@ def search(
         except RuntimeError as exc:
             raise typer.BadParameter(str(exc)) from exc
         if not results:
-            console.print(f"No embeddings found for project '{project}'. Run: sampler embed {project}")
+            console.print(f"No semantic matches found for project '{project}'.")
             return
         roots = _get_project_roots()
         for r in results:
@@ -302,12 +302,9 @@ def index(project: str) -> None:
 @app.command("embed")
 def embed(
     project: str,
-    model: str = typer.Option("BAAI/bge-small-en-v1.5", "--model", help="sentence-transformers model name or local path"),
-    offline: bool = typer.Option(
-        False, "--offline", help="No network access (HuggingFace/etc.) - use a locally cached/local model only"
-    ),
+    batch_size: int = typer.Option(32, "--batch-size", help="Batch size for hash fingerprint generation"),
 ) -> None:
-    """Generate/refresh local embeddings for a project's symbols (enables 'sampler search --semantic')."""
+    """Generate/refresh local hash fingerprints for symbols (fallback semantic backend cache)."""
     config = ConfigManager()
     if config.get_project(project) is None:
         raise typer.BadParameter(
@@ -320,7 +317,7 @@ def embed(
 
     from sampler.indexer.embedder import Embedder
 
-    embedder = Embedder(model_name=model, offline=offline)
+    embedder = Embedder()
 
     try:
         with Progress(
@@ -337,10 +334,15 @@ def embed(
                     progress.update(task, total=total)
                 progress.update(task, completed=done)
 
-            count = embedder.embed_project(db=_database(), project_name=project, on_progress=_on_progress)
+            count = embedder.embed_project(
+                db=_database(), project_name=project, batch_size=batch_size, on_progress=_on_progress
+            )
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
-    console.print(f"Embedded [bold]{count}[/bold] symbols for project [bold]{project}[/bold] using {model}")
+    console.print(
+        f"Embedded [bold]{count}[/bold] symbols for project [bold]{project}[/bold] "
+        "using hash fingerprint backend"
+    )
 
 
 @app.command("overview")
@@ -493,6 +495,35 @@ def related(
 
     for r in rows:
         console.print(f"{_format_symbol_line(r, roots)}  [{r['relation']}]")
+
+
+@app.command("stale-code")
+def stale_code(
+    project: str,
+    limit: int = typer.Option(100, "--limit", "-l"),
+) -> None:
+    """Detect likely stale functions: called by tests but not by non-test code."""
+    config = ConfigManager()
+    if config.get_project(project) is None:
+        raise typer.BadParameter(
+            f"Project '{project}' not found.\nUse 'sampler project list' to see registered projects."
+        )
+
+    engine = QueryEngine(db=_database())
+    rows = engine.stale_code_candidates(project)
+    if not rows:
+        console.print(f"No stale-code candidates found for {project}.")
+        return
+
+    roots = _get_project_roots()
+    for r in rows[:limit]:
+        callers = ", ".join(r["test_callers"][:3])
+        if len(r["test_callers"]) > 3:
+            callers += ", ..."
+        console.print(
+            f"{_format_symbol_line(r, roots)}  test_callers={r['test_caller_count']} "
+            f"non_test_callers={r['non_test_caller_count']}  [{callers}]"
+        )
 
 
 if __name__ == "__main__":

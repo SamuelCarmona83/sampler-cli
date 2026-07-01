@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sampler.db import Database
-from sampler.indexer.embedder import Embedder
+from sampler.indexer.embedder import Embedder, build_embedding_text, tokenize_text
 
 
 class SemanticEngine:
@@ -11,30 +11,70 @@ class SemanticEngine:
         self.db = db
         self.embedder = embedder or Embedder()
 
-    def _scored_candidates(self, query: str, project_name: str | None, pool: int):
+    def _project_rows(self, project_name: str | None) -> list[dict]:
+        if not project_name:
+            return []
+        return self.db.list_symbols(project_name=project_name)
+
+    def _tfidf_scored_candidates(self, query: str, rows: list[dict], pool: int):
+        """Primary backend: TF-IDF cosine similarity over structured symbol docs."""
+        try:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+        except ImportError:
+            return []
+
+        if not rows:
+            return []
+
+        texts = [build_embedding_text(dict(r), r["file_path"]) for r in rows]
+        vectorizer = TfidfVectorizer(tokenizer=tokenize_text, token_pattern=None, lowercase=True)
+        doc_matrix = vectorizer.fit_transform(texts)
+        query_vec = vectorizer.transform([query])
+
+        sims = (doc_matrix @ query_vec.T).toarray().ravel()
+        scored = [(float(sim), row) for sim, row in zip(sims, rows)]
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return scored[:pool]
+
+    def _hash_scored_candidates(self, query: str, rows: list[dict], project_name: str | None, pool: int):
+        """Fallback backend: deterministic hash fingerprints (no ML model dependency)."""
         try:
             import numpy as np
         except ImportError as exc:
             raise RuntimeError(
-                "Semantic search requires the 'semantic' extra. "
-                "Install with: pip install 'sampler-cli[semantic]'"
+                "Semantic search requires numpy. Install with: pip install 'sampler-cli[semantic]'"
             ) from exc
 
-        rows = self.db.get_embeddings_for_project(project_name) if project_name else []
+        embeddings = self.db.get_embeddings_for_project(project_name) if project_name else []
+        query_vec = self.embedder.hash_fingerprint_vector(query)
+
+        if embeddings:
+            scored = []
+            for row in embeddings:
+                vec = np.frombuffer(row["vector"], dtype="float32")
+                sim = float(np.dot(query_vec, vec))
+                scored.append((sim, row))
+            scored.sort(key=lambda pair: pair[0], reverse=True)
+            return scored[:pool]
+
         if not rows:
             return []
 
-        query_vec = self.embedder.embed_texts([query])[0]
-        query_vec = np.asarray(query_vec, dtype="float32")
-
         scored = []
         for row in rows:
-            vec = np.frombuffer(row["vector"], dtype="float32")
+            text = build_embedding_text(dict(row), row["file_path"])
+            vec = self.embedder.hash_fingerprint_vector(text)
             sim = float(np.dot(query_vec, vec))
             scored.append((sim, row))
-
         scored.sort(key=lambda pair: pair[0], reverse=True)
         return scored[:pool]
+
+    def _scored_candidates(self, query: str, project_name: str | None, pool: int):
+        rows = self._project_rows(project_name)
+        tfidf = self._tfidf_scored_candidates(query, rows, pool)
+        if tfidf:
+            return tfidf
+        return self._hash_scored_candidates(query, rows, project_name, pool)
 
     def semantic_search(self, query: str, project_name: str | None = None, limit: int = 10) -> list[dict]:
         """Pure cosine-similarity search over stored symbol embeddings, no graph/text signals."""
@@ -58,7 +98,7 @@ class SemanticEngine:
 
         centralities = []
         for _, row in candidates:
-            callers = self.db.get_callers(row["symbol_id"])
+            callers = self.db.get_callers(row["id"])
             centralities.append(len(callers))
         max_centrality = max(centralities) or 1
 

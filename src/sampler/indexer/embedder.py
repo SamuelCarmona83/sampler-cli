@@ -1,12 +1,35 @@
 from __future__ import annotations
 
-import os
+import hashlib
+import re
 from typing import Callable
 
 from sampler.db import Database
 
-DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
 DEFAULT_BATCH_SIZE = 32
+DEFAULT_HASH_BITS = 256
+DEFAULT_EMBEDDING_BACKEND = "hash-fingerprint-v1"
+
+
+def tokenize_text(text: str) -> list[str]:
+    """Tokenize identifiers and prose with light normalization.
+
+    - keeps original token
+    - splits snake_case/camel-ish chunks via separators
+    - adds naive singular form for trailing 's' words
+    """
+    base = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", text.lower())
+    out: list[str] = []
+    for tok in base:
+        out.append(tok)
+        parts = [p for p in re.split(r"[_\-./]", tok) if p]
+        out.extend(parts)
+        if tok.endswith("s") and len(tok) > 3:
+            out.append(tok[:-1])
+        for part in parts:
+            if part.endswith("s") and len(part) > 3:
+                out.append(part[:-1])
+    return out
 
 
 def build_embedding_text(symbol: dict, file_path: str) -> str:
@@ -51,60 +74,57 @@ def _extract_arguments(signature: str | None) -> list[str]:
 
 
 class Embedder:
-    """Generates symbol embeddings using a local sentence-transformers model.
+    """Generates deterministic local embeddings with hash fingerprints.
 
-    An `encode_fn` may be injected (e.g. in tests) to bypass loading the real
-    model; it must accept a list[str] and return an (N, dim) numpy array.
+    No LLM model dependency, no provider/network dependency.
 
-    Set `offline=True` (or env vars HF_HUB_OFFLINE=1 / TRANSFORMERS_OFFLINE=1)
-    when there's no network access to HuggingFace or any other provider — the
-    model must already be cached locally, or `model_name` must point to a
-    local model directory.
+    An `encode_fn` may be injected (e.g. tests/custom backend) to bypass the
+    built-in fingerprinting logic; it must accept list[str] and return an
+    (N, dim) numpy-like array.
     """
 
     def __init__(
         self,
-        model_name: str = DEFAULT_MODEL,
         encode_fn: Callable | None = None,
-        offline: bool = False,
+        hash_bits: int = DEFAULT_HASH_BITS,
     ) -> None:
-        self.model_name = model_name
-        self.offline = offline or os.environ.get("HF_HUB_OFFLINE") == "1"
+        self.backend = DEFAULT_EMBEDDING_BACKEND
         self._encode_fn = encode_fn
-        self._model = None
+        self.hash_bits = hash_bits
 
-    def _load_model(self):
-        if self._model is None:
-            if self.offline:
-                os.environ["HF_HUB_OFFLINE"] = "1"
-                os.environ["TRANSFORMERS_OFFLINE"] = "1"
-            try:
-                from sentence_transformers import SentenceTransformer
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Semantic search requires the 'semantic' extra. "
-                    "Install with: pip install 'sampler-cli[semantic]'"
-                ) from exc
-            try:
-                self._model = SentenceTransformer(self.model_name, local_files_only=self.offline)
-            except Exception as exc:
-                raise RuntimeError(
-                    f"Could not load model '{self.model_name}'"
-                    + (
-                        " in offline mode (not found in local cache)."
-                        if self.offline
-                        else " — no network access to HuggingFace or any other provider?"
-                    )
-                    + " Download the model once with internet access (it gets cached locally), "
-                    "or point --model at a local model directory, then retry with --offline."
-                ) from exc
-        return self._model
+    def _tokens(self, text: str) -> list[str]:
+        return tokenize_text(text)
+
+    def hash_fingerprint_vector(self, text: str):
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise RuntimeError(
+                "Semantic search requires numpy. Install with: pip install 'sampler-cli[semantic]'"
+            ) from exc
+
+        vec = np.zeros(self.hash_bits, dtype="float32")
+        for token in self._tokens(text):
+            digest = hashlib.sha256(token.encode("utf-8")).digest()
+            idx = int.from_bytes(digest[:4], "big") % self.hash_bits
+            vec[idx] = 1.0
+
+        norm = np.linalg.norm(vec)
+        return vec / norm if norm else vec
+
+    def hash_fingerprint_bytes(self, text: str) -> bytes:
+        return self.hash_fingerprint_vector(text).astype("float32").tobytes()
 
     def embed_texts(self, texts: list[str]):
         if self._encode_fn is not None:
             return self._encode_fn(texts)
-        model = self._load_model()
-        return model.encode(texts, convert_to_numpy=True, normalize_embeddings=True)
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise RuntimeError(
+                "Semantic search requires numpy. Install with: pip install 'sampler-cli[semantic]'"
+            ) from exc
+        return np.stack([self.hash_fingerprint_vector(t) for t in texts])
 
     def embed_project(
         self,
@@ -123,20 +143,16 @@ class Embedder:
         if total == 0:
             return 0
 
-        dim: int | None = None
+        dim = self.hash_bits
         for start in range(0, total, batch_size):
             batch = rows[start : start + batch_size]
             texts = [build_embedding_text(dict(row), row["file_path"]) for row in batch]
-            vectors = self.embed_texts(texts)
-            if dim is None:
-                dim = int(vectors.shape[1])
-
-            for row, vector in zip(batch, vectors):
+            for row, text in zip(batch, texts):
                 db.upsert_embedding(
                     symbol_id=row["id"],
-                    model=self.model_name,
+                    model=self.backend,
                     dim=dim,
-                    vector=vector.astype("float32").tobytes(),
+                    vector=self.hash_fingerprint_bytes(text),
                 )
 
             if on_progress is not None:

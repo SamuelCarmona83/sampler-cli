@@ -73,21 +73,60 @@ Versión actual: 0.2.1
 - (done in 0.2.1) `symbols <project>` command, better overview UX (not found + relative paths), improved errors, full English README + examples.
 
 ## Restante (prioridad media)
-- (done) verificar soporte index projectos multilenguaje o monolitos: `project add --language auto` detecta el lenguaje por archivo (discover_files_multi + IndexBuilder).
-- (done) Parser Go real (tree-sitter-go): structs/interfaces, funcs/methods (con receiver → CONTAINS), CALLS, docstrings via comentarios.
-- (done) Parser TypeScript/JavaScript real (tree-sitter-typescript): functions, classes+methods, interfaces, const arrow-functions, CALLS/CONTAINS.
-- (done) Comandos `callers`, `usages`, `related` (con resolución de símbolo ambigua y `--style bars`).
-- (done) Cross-project dependencies reales: extracción heurística de imports (regex) + tabla `project_dependencies` poblada en `sampler index`; comando `project deps <name>`.
-- (done) Comando `project update` (evita remove/add al cambiar lenguaje/path).
+- verificar soporte index projectos multilenguaje o monolitos Parser Real GO/React/Vue/
+- Parser Go real.
+- Parser TypeScript/JavaScript real.
+- Comandos callers, usages, related.
+- Cross-project dependencies reales.
+- Comando `project update` (evitar remove/add al cambiar lenguaje/path).
 
-- (done) start_line/end_line ya se guardaban en symbols; ahora también se exponen en `overview`/`symbols` output.
-- (done) Modo `bars` (`--style bars` en `search`/`overview`/`related`): colorea grupos de símbolos conectados (CONTAINS/CALLS) y anota relaciones con flechas ascii (→ ⊃ ⇒), estilo rima coloreada.
-- (done) Semantic search y Hybrid Search:
-  - Texto estructurado por símbolo (`indexer/embedder.py::build_embedding_text`, formato Function/File/Arguments/Docstring).
-  - Embeddings locales vía `sentence-transformers` (extra opcional `semantic`), comando `sampler embed <project>`.
-  - Búsqueda por similitud coseno (`query/semantic.py::SemanticEngine.semantic_search`, numpy brute-force sobre BLOBs en SQLite).
-  - Ranking híbrido implementado: `0.5*semantic_similarity + 0.2*exact_match + 0.2*centrality + 0.1*recently_modified`, expuesto via `sampler search --semantic`.
-  - Pendiente futuro: enriquecer con IMPORTS/USES reales en el ranking de centralidad (hoy solo CALLS in-degree).
+- Guardar para los simbolos funciones clases y bloques / start_line/end_line.
+- tengo algunas idea para como desplegar la salida de la busqueda, quiero un modo 'bars' que subraye con colores las distintas relaciones de los simbolos, algo a como se muestran las rimas en el rap/hip-hop este proyecto es fuertemente inspirado en MF Doom.
+- Tambien podemos usar flechas →  ascii para marcar las relaciones
+- Semantic search y Hybrid Search (Prioridad)
+- Generar un embedding por símbolo usando un modelo local (por ejemplo, uno de la familia bge o nomic-embed)
+- No el código entero
+def retry_request():
+    ...
+Documento
+"""
+Function:
+retry_request
+
+File:
+network.py
+
+Arguments:
+url
+retries
+
+Docstring:
+Retries failed HTTP requests using exponential backoff.
+"""
+Ese texto genera embeddings mucho mejores.
+
+- Guardar esos embeddings junto al symbol_id
+- Implementar una búsqueda por similitud coseno que devuelva el Top K de resultados.
+- Enriquecer esos resultados con el grafo (CALLERS, USES, IMPORTS, CONTAINS).
+- Añadir un sistema de ranking híbrido que combine similitud semántica, coincidencias de texto y señales del grafo.
+- ranking score formula => 0.5 * semantic_similarity + 0.2 * exact_match + 0.2 * centrality + 0.1 * recently_modified
+- Lo interesante es que puedes unir tres mundos en una sola herramienta
+           Usuario
+               │
+        "¿Dónde se manejan los reintentos?"
+               │
+               ▼
+      Búsqueda semántica
+               │
+     Encuentra `retry_request()`
+               │
+               ▼
+        Grafo de relaciones
+               │
+    CALLERS · IMPORTS · CONTAINS
+               │
+               ▼
+   Contexto completo del codebase
 
 ## Restante (Fase 2)
 - Re-index project on demand / have a last_reindex_date or something to make the agent or user aware (or plan a reindex worker that executes on background)

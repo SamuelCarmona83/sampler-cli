@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from sampler.db import Database
 
 
@@ -52,3 +54,58 @@ class QueryEngine:
             return matches, []
         rows = self.db.get_related(matches[0]["id"])
         return matches, [dict(row) for row in rows]
+
+    @staticmethod
+    def _is_test_path(path: str) -> bool:
+        p = path.replace("\\", "/").lower()
+        name = Path(path).name.lower()
+        return "/tests/" in p or name.startswith("test_") or name.endswith("_test.py")
+
+    def stale_code_candidates(self, project_name: str) -> list[dict]:
+        """Detect code likely stale: function/method called by tests but not by non-test code."""
+        edges = [dict(r) for r in self.db.get_project_call_edges(project_name)]
+        by_target: dict[int, dict] = {}
+
+        function_types = {"function", "async function", "method", "async method"}
+        for edge in edges:
+            if edge["target_type"] not in function_types:
+                continue
+
+            target_id = int(edge["target_id"])
+            entry = by_target.setdefault(
+                target_id,
+                {
+                    "id": target_id,
+                    "type": edge["target_type"],
+                    "name": edge["target_name"],
+                    "qualified_name": edge["target_qualified_name"],
+                    "start_line": edge["target_start_line"],
+                    "end_line": edge["target_end_line"],
+                    "file_path": edge["target_file_path"],
+                    "project_name": project_name,
+                    "test_callers": set(),
+                    "non_test_callers": set(),
+                },
+            )
+
+            caller_name = edge["source_qualified_name"] or edge["source_name"]
+            if self._is_test_path(edge["source_file_path"]):
+                entry["test_callers"].add(caller_name)
+            else:
+                entry["non_test_callers"].add(caller_name)
+
+        stale: list[dict] = []
+        for entry in by_target.values():
+            if entry["test_callers"] and not entry["non_test_callers"]:
+                stale.append(
+                    {
+                        **entry,
+                        "test_callers": sorted(entry["test_callers"]),
+                        "non_test_callers": sorted(entry["non_test_callers"]),
+                        "test_caller_count": len(entry["test_callers"]),
+                        "non_test_caller_count": len(entry["non_test_callers"]),
+                    }
+                )
+
+        stale.sort(key=lambda r: (r["file_path"], r["start_line"], r["qualified_name"] or r["name"]))
+        return stale
