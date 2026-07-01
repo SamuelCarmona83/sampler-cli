@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.2.1] - 2026-07-01
+
+### Added
+- `symbols <project>` command to list all symbols of a project (with `--type` and `--limit` filters). Great for quick overview.
+- Smart relative path support in `overview` (resolves from cwd and also tries relative to registered project roots).
+- Clear "No symbols found" message + usage tips when `overview` finds nothing.
+
+### Changed
+- Improved error messages across commands with exact command suggestions and tips (e.g. for missing projects).
+- README fully rewritten in English, with example outputs, explanation of `project add` requirement, and token-efficient usage notes.
+- Added `no_args_is_help=True` for better default CLI help.
+
+### Fixed
+- Better handling and messaging for missing files in overview.
+
+See PLAN.md and TODO.md for roadmap.
+
 ## [0.2.0] - 2026-07-01
 
 ### Added

@@ -2,7 +2,7 @@
 
 ## Estado
 
-Versión actual: 0.2.0 (pre-release for demo)
+Versión actual: 0.2.1
 
 ## Hecho
 
@@ -43,14 +43,26 @@ Versión actual: 0.2.0 (pre-release for demo)
   - sampler overview <filepath>
 - Fix de crash en indexación (se removió uso runtime de tree-sitter en parser Python).
 - Compact default output for search/overview + short paths in project list (min tokens for LLM use). Removed noisy module/import symbols.
+- `symbols <project>` command (with --type/--limit) to list all symbols of a project.
+- Improved `overview` with "No symbols found" message + tips, and smart relative path support (resolves from cwd + project roots).
+- Better error messages with command examples and tips.
+- Full English README with examples, "project add" explanation, etc.
+- RELEASE.md with publishing guide.
+- Added `symbols <project>` command (with filters/limit) to list all symbols of a project.
+- Improved `overview`: clear "not found" message + tips, smart relative path support (resolves from cwd + tries project roots).
+- Better error messages with actionable command suggestions and tips.
+- README fully in English with examples, project add explanation, etc.
+- Added RELEASE.md with publishing instructions.
+- Full clean `pip install` + demo flow test passed (verified with 0.2.0/0.2.1 wheels).
 
 ## Release / Demo priorities (to launch on PyPI + showcase)
 
-- [x] LICENSE + pyproject metadata polish, version 0.2.0, CHANGELOG
+- [x] LICENSE + pyproject metadata polish, version 0.2.1, CHANGELOG
 - [x] PyPI publish workflow (trusted publishers)
-- [x] README demo/install instructions + token-efficient highlights
+- [x] README demo/install instructions + token-efficient highlights (now fully English + examples)
 - [x] CI build check
-- [ ] Test clean `pip install` + full demo flow (index real multi-file project, show compact search/ov/list)
+- [x] Test clean `pip install` + full demo flow (including new `symbols` command)
+- [x] Added `symbols` command, improved `overview` UX (not found + relative paths), better errors
 - [ ] (low) Improve store cross-file name resolution for reliable relations in demo
 
 ## Restante (prioridad alta)
@@ -58,6 +70,7 @@ Versión actual: 0.2.0 (pre-release for demo)
 - Mejorar store/index para relaciones cross-file avanzadas. (name-based resolution in place; advanced scope/import tracking later)
 - (done) Mejorar parser Python AST: AsyncFunctionDef, decorators/annotations in sig+meta, basic calls.
 - (done) Mejorar QueryEngine: type filters (w/ async expand), limit/offset, search-all command.
+- (done in 0.2.1) `symbols <project>` command, better overview UX (not found + relative paths), improved errors, full English README + examples.
 
 ## Restante (prioridad media)
 
@@ -88,6 +101,9 @@ Versión actual: 0.2.0 (pre-release for demo)
   - sampler index myproj
 - Buscar símbolo:
   - sampler search add --project myproj
+- Listar símbolos de un proyecto:
+  - sampler symbols myproj
+  - sampler symbols myproj --type function --limit 20
 - Overview por archivo:
   - sampler overview /ruta/absoluta/al/archivo.py
 - Flujo mínimo:
@@ -95,6 +111,7 @@ Versión actual: 0.2.0 (pre-release for demo)
   - sampler project add myproj /ruta/absoluta --language python
   - sampler index myproj
   - sampler search Nombre --project myproj
+  - sampler symbols myproj
 - Listar proyectos:
   - sampler project list
 - Eliminar proyecto:
