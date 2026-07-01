@@ -17,33 +17,34 @@ brew install go
 go version
 ```
 
-## Instalación (dev)
+## Instalación
 
 ```bash
-uv venv
-source .venv/bin/activate
-uv pip install -e .[dev]
+pip install sampler-cli
 ```
 
-Alternativa con pip:
+Para desarrollo (incluye tests, linters):
 
 ```bash
-/opt/homebrew/bin/python3.11 -m pip install -e '.[dev]'
+pip install -e '.[dev]'
 ```
 
 ## Uso rápido
 
 ```bash
-sampler --help
-sampler version
+pip install sampler-cli
 sampler init
 sampler project add myproj /absolute/path --language python
 sampler project list
 sampler index myproj
 sampler search add --project myproj
 sampler overview /absolute/path/file.py
-sampler project remove myproj
 ```
+
+**Demo / LLM use (token-efficient by design):**
+- Default outputs are compact single-line (no tables, short paths, no noise).
+- Ideal for pasting into agents/LLMs with minimal context size.
+- Example: `sampler search worker --project myproj` → `myproj:src/tasks.py:42 function process  def process()`
 
 ## Estado actual
 

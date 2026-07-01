@@ -18,3 +18,8 @@ jobs:
           pip install -e .[dev]
       - name: Run tests
         run: pytest -q
+      - name: Build package (sdist + wheel)
+        run: |
+          python -m pip install build
+          python -m build --outdir /tmp/dist
+          ls -l /tmp/dist

@@ -1,8 +1,21 @@
 [project]
 name = "sampler-cli"
-version = "0.1.2"
-description = "CLI indexer for code navigation"
+version = "0.2.0"
+description = "Token-efficient CLI for indexing and searching code symbols (Python-first, designed for minimal LLM/agent context size)"
 readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Samuel Ignacio Carmona Rodriguez" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Code Generators",
+]
 requires-python = ">=3.11"
 dependencies = [
     "typer>=0.12.0",
@@ -44,3 +57,8 @@ target-version = "py311"
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[project.urls]
+Homepage = "https://github.com/sicr0/sampler-cli"
+Repository = "https://github.com/sicr0/sampler-cli"
+Issues = "https://github.com/sicr0/sampler-cli/issues"

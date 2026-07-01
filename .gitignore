@@ -21,3 +21,9 @@ venv/
 
 # Sampler data
 .sampler/
+.grok/
+
+# Build artifacts (never commit, never publish)
+build/
+dist/
+*.egg-info/

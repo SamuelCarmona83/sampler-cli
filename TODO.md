@@ -2,7 +2,7 @@
 
 ## Estado
 
-Versión actual: 0.1.2
+Versión actual: 0.2.0 (pre-release for demo)
 
 ## Hecho
 
@@ -43,6 +43,15 @@ Versión actual: 0.1.2
   - sampler overview <filepath>
 - Fix de crash en indexación (se removió uso runtime de tree-sitter en parser Python).
 - Compact default output for search/overview + short paths in project list (min tokens for LLM use). Removed noisy module/import symbols.
+
+## Release / Demo priorities (to launch on PyPI + showcase)
+
+- [x] LICENSE + pyproject metadata polish, version 0.2.0, CHANGELOG
+- [x] PyPI publish workflow (trusted publishers)
+- [x] README demo/install instructions + token-efficient highlights
+- [x] CI build check
+- [ ] Test clean `pip install` + full demo flow (index real multi-file project, show compact search/ov/list)
+- [ ] (low) Improve store cross-file name resolution for reliable relations in demo
 
 ## Restante (prioridad alta)
 
