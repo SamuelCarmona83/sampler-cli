@@ -68,6 +68,34 @@ class ConfigManager:
         del config.projects[name]
         self.save(config)
 
+    def update_project(
+        self,
+        name: str,
+        path: str | None = None,
+        language: str | None = None,
+        enabled: bool | None = None,
+    ) -> ProjectConfig:
+        config = self.load()
+        existing = config.projects.get(name)
+        if existing is None:
+            raise ValueError(f"Project '{name}' does not exist")
+
+        new_path = existing.path
+        if path is not None:
+            new_path = str(Path(path).expanduser().resolve())
+            if not Path(new_path).exists():
+                raise ValueError(f"Project path does not exist: {new_path}")
+
+        updated = ProjectConfig(
+            name=existing.name,
+            path=new_path,
+            language=language if language is not None else existing.language,
+            enabled=enabled if enabled is not None else existing.enabled,
+        )
+        config.projects[name] = updated
+        self.save(config)
+        return updated
+
     def get_project(self, name: str) -> ProjectConfig | None:
         config = self.load()
         return config.projects.get(name)

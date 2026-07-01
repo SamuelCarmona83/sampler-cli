@@ -67,6 +67,14 @@ class Database:
                     UNIQUE(source_project_id, target_project_id, type)
                 );
 
+                CREATE TABLE IF NOT EXISTS embeddings (
+                    symbol_id INTEGER PRIMARY KEY REFERENCES symbols(id),
+                    model TEXT NOT NULL,
+                    dim INTEGER NOT NULL,
+                    vector BLOB NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
                 CREATE INDEX IF NOT EXISTS idx_symbols_qualified ON symbols(qualified_name);
                 CREATE INDEX IF NOT EXISTS idx_relations_source ON relationships(source_id);
@@ -224,6 +232,103 @@ class Database:
             ).fetchone()
             return None if row is None else int(row["id"])
 
+    def find_symbols(self, symbol_name: str, project_name: str | None = None) -> list[sqlite3.Row]:
+        """Find all symbols matching a name or qualified_name, for CLI disambiguation."""
+        where = "WHERE (s.qualified_name = ? OR s.name = ?)"
+        params: list = [symbol_name, symbol_name]
+        if project_name:
+            where += " AND p.name = ?"
+            params.append(project_name)
+
+        sql = f"""
+                SELECT
+                    s.id,
+                    s.type,
+                    s.name,
+                    s.qualified_name,
+                    s.start_line,
+                    s.end_line,
+                    f.path AS file_path,
+                    p.name AS project_name
+                FROM symbols s
+                JOIN files f ON s.file_id = f.id
+                JOIN projects p ON f.project_id = p.id
+                {where}
+                ORDER BY p.name, f.path, s.start_line
+                """
+        with self.connect() as conn:
+            return conn.execute(sql, params).fetchall()
+
+    def get_callers(self, symbol_id: int) -> list[sqlite3.Row]:
+        """Symbols that CALL the given symbol."""
+        sql = """
+                SELECT
+                    src.id,
+                    src.type,
+                    src.name,
+                    src.qualified_name,
+                    src.start_line,
+                    src.end_line,
+                    f.path AS file_path,
+                    p.name AS project_name,
+                    r.line AS relation_line
+                FROM relationships r
+                JOIN symbols src ON r.source_id = src.id
+                JOIN files f ON src.file_id = f.id
+                JOIN projects p ON f.project_id = p.id
+                WHERE r.target_id = ? AND r.type = 'CALLS'
+                ORDER BY p.name, f.path, src.start_line
+                """
+        with self.connect() as conn:
+            return conn.execute(sql, (symbol_id,)).fetchall()
+
+    def get_usages(self, symbol_id: int) -> list[sqlite3.Row]:
+        """Symbols that reference the given symbol via any relationship type (broader than callers)."""
+        sql = """
+                SELECT
+                    src.id,
+                    src.type,
+                    src.name,
+                    src.qualified_name,
+                    src.start_line,
+                    src.end_line,
+                    f.path AS file_path,
+                    p.name AS project_name,
+                    r.type AS relation_type,
+                    r.line AS relation_line
+                FROM relationships r
+                JOIN symbols src ON r.source_id = src.id
+                JOIN files f ON src.file_id = f.id
+                JOIN projects p ON f.project_id = p.id
+                WHERE r.target_id = ?
+                ORDER BY p.name, f.path, src.start_line
+                """
+        with self.connect() as conn:
+            return conn.execute(sql, (symbol_id,)).fetchall()
+
+    def get_related(self, symbol_id: int) -> list[sqlite3.Row]:
+        """CONTAINS relationships in both directions: containing symbol (parent) and contained symbols (children)."""
+        sql = """
+                SELECT
+                    other.id,
+                    other.type,
+                    other.name,
+                    other.qualified_name,
+                    other.start_line,
+                    other.end_line,
+                    f.path AS file_path,
+                    p.name AS project_name,
+                    CASE WHEN r.source_id = ? THEN 'child' ELSE 'parent' END AS relation
+                FROM relationships r
+                JOIN symbols other ON other.id = (CASE WHEN r.source_id = ? THEN r.target_id ELSE r.source_id END)
+                JOIN files f ON other.file_id = f.id
+                JOIN projects p ON f.project_id = p.id
+                WHERE r.type = 'CONTAINS' AND (r.source_id = ? OR r.target_id = ?)
+                ORDER BY p.name, f.path, other.start_line
+                """
+        with self.connect() as conn:
+            return conn.execute(sql, (symbol_id, symbol_id, symbol_id, symbol_id)).fetchall()
+
     def insert_relationship(self, source_id: int, target_id: int, relation: dict) -> None:
         with self.connect() as conn:
             metadata = relation.get("metadata")
@@ -273,6 +378,7 @@ class Database:
                     s.qualified_name,
                     s.signature,
                     s.start_line,
+                    s.end_line,
                     f.path AS file_path,
                     p.name AS project_name
                 FROM symbols s
@@ -304,6 +410,7 @@ class Database:
                     s.qualified_name,
                     s.signature,
                     s.start_line,
+                    s.end_line,
                     f.path AS file_path,
                     p.name AS project_name
                 FROM symbols s
@@ -330,6 +437,7 @@ class Database:
                     s.qualified_name,
                     s.signature,
                     s.start_line,
+                    s.end_line,
                     f.path AS file_path,
                     p.name AS project_name
                 FROM symbols s

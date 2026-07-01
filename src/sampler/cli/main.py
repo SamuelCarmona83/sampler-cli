@@ -50,6 +50,15 @@ def _short_path(project_name: str, full_path: str, roots: dict[str, Path]) -> st
     return p.name
 
 
+def _format_line_range(start_line: int | None, end_line: int | None) -> str:
+    """Format a symbol's line range compactly: 'start-end' when both known, else 'start' or '-'."""
+    if not start_line:
+        return "-"
+    if end_line and end_line != start_line:
+        return f"{start_line}-{end_line}"
+    return str(start_line)
+
+
 @app.command("version")
 def version() -> None:
     """Show installed sampler version."""
@@ -106,6 +115,24 @@ def project_remove(name: str) -> None:
     except ValueError as exc:
         raise typer.BadParameter(str(exc)) from exc
     console.print(f"Removed project [bold]{name}[/bold]")
+
+
+@project_app.command("update")
+def project_update(
+    name: str,
+    path: str | None = typer.Option(None, "--path", help="New absolute path for the project"),
+    language: str | None = typer.Option(None, "--language", help="New language (or 'auto' for monorepos)"),
+) -> None:
+    """Update a registered project's path/language in place (no remove/add needed)."""
+    if path is None and language is None:
+        raise typer.BadParameter("Provide at least one of --path or --language to update.")
+    config = ConfigManager()
+    try:
+        project = config.update_project(name, path=path, language=language)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print(f"Updated project [bold]{project.name}[/bold]: path={project.path} language={project.language}")
+    console.print(f"Tip: run 'sampler index {project.name}' to re-index with the updated settings.")
 
 
 @app.command("search")
@@ -180,7 +207,8 @@ def symbols(
         shortf = _short_path(r["project_name"], r["file_path"], roots)
         name = r["qualified_name"] or r["name"]
         sig = r.get("signature") or ""
-        line = f"{r['project_name']}:{shortf}:{r['start_line'] or '-'} {r['type']} {name}"
+        lines = _format_line_range(r["start_line"], r["end_line"])
+        line = f"{r['project_name']}:{shortf}:{lines} {r['type']} {name}"
         if sig:
             line += f"  {sig}"
         console.print(line)
@@ -259,10 +287,87 @@ def overview(filepath: str) -> None:
     for r in rows:
         name = r["qualified_name"] or r["name"]
         sig = r.get("signature") or ""
-        line = f"{r['start_line'] or '-'}: {r['type']} {name}"
+        lines = _format_line_range(r["start_line"], r["end_line"])
+        line = f"{lines}: {r['type']} {name}"
         if sig:
             line += f"  {sig}"
         console.print(line)
+
+
+def _format_symbol_line(r: dict, roots: dict[str, Path]) -> str:
+    shortf = _short_path(r["project_name"], r["file_path"], roots)
+    name = r["qualified_name"] or r["name"]
+    lines = _format_line_range(r["start_line"], r["end_line"])
+    return f"{r['project_name']}:{shortf}:{lines} {r['type']} {name}"
+
+
+def _resolve_or_report(matches: list[dict], symbol: str, roots: dict[str, Path]) -> bool:
+    """Print an error/disambiguation message when matches != 1. Returns True if safe to proceed."""
+    if len(matches) == 0:
+        console.print(f"No symbol found matching '{symbol}'.")
+        console.print("Tip: use 'sampler search <name> --project <project>' to find the right name.")
+        return False
+    if len(matches) > 1:
+        console.print(f"Ambiguous symbol '{symbol}', found {len(matches)} matches:")
+        for m in matches:
+            console.print(f"  {_format_symbol_line(m, roots)}")
+        console.print("Tip: narrow down with --project <project>.")
+        return False
+    return True
+
+
+@app.command("callers")
+def callers(
+    symbol: str,
+    project: str | None = typer.Option(None, "--project", "-p"),
+) -> None:
+    """Show symbols that CALL the given symbol."""
+    engine = QueryEngine(db=_database())
+    matches, rows = engine.callers(symbol, project)
+    roots = _get_project_roots()
+    if not _resolve_or_report(matches, symbol, roots):
+        return
+    if not rows:
+        console.print(f"No callers found for {symbol}.")
+        return
+    for r in rows:
+        console.print(_format_symbol_line(r, roots))
+
+
+@app.command("usages")
+def usages(
+    symbol: str,
+    project: str | None = typer.Option(None, "--project", "-p"),
+) -> None:
+    """Show symbols that reference the given symbol (any relationship type, broader than callers)."""
+    engine = QueryEngine(db=_database())
+    matches, rows = engine.usages(symbol, project)
+    roots = _get_project_roots()
+    if not _resolve_or_report(matches, symbol, roots):
+        return
+    if not rows:
+        console.print(f"No usages found for {symbol}.")
+        return
+    for r in rows:
+        console.print(f"{_format_symbol_line(r, roots)}  [{r['relation_type']}]")
+
+
+@app.command("related")
+def related(
+    symbol: str,
+    project: str | None = typer.Option(None, "--project", "-p"),
+) -> None:
+    """Show symbols related via CONTAINS (parent class / child methods)."""
+    engine = QueryEngine(db=_database())
+    matches, rows = engine.related(symbol, project)
+    roots = _get_project_roots()
+    if not _resolve_or_report(matches, symbol, roots):
+        return
+    if not rows:
+        console.print(f"No related symbols found for {symbol}.")
+        return
+    for r in rows:
+        console.print(f"{_format_symbol_line(r, roots)}  [{r['relation']}]")
 
 
 if __name__ == "__main__":

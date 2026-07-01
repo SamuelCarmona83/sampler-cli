@@ -35,7 +35,7 @@ dev = [
     "mypy>=1.7.0",
 ]
 mcp = ["fastmcp>=0.1.0"]
-semantic = ["sentence-transformers>=2.2.0"]
+semantic = ["sentence-transformers>=2.2.0", "numpy>=1.26.0"]
 
 [project.scripts]
 sampler = "sampler.cli.main:app"
