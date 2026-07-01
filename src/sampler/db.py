@@ -314,3 +314,33 @@ class Database:
                 """,
                 params,
             ).fetchall()
+
+    def list_symbols(self, project_name: str, types: list[str] | None = None, limit: int | None = None, offset: int = 0) -> list[sqlite3.Row]:
+        where = "WHERE p.name = ?"
+        params: list = [project_name]
+        if types:
+            ph = ",".join("?" * len(types))
+            where += f" AND s.type IN ({ph})"
+            params.extend(types)
+
+        sql = f"""
+                SELECT
+                    s.type,
+                    s.name,
+                    s.qualified_name,
+                    s.signature,
+                    s.start_line,
+                    f.path AS file_path,
+                    p.name AS project_name
+                FROM symbols s
+                JOIN files f ON s.file_id = f.id
+                JOIN projects p ON f.project_id = p.id
+                {where}
+                ORDER BY f.path, s.start_line
+                """
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
+        with self.connect() as conn:
+            return conn.execute(sql, params).fetchall()
