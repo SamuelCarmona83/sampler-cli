@@ -255,16 +255,18 @@ class Database:
             )
             conn.commit()
 
-    def search_symbols(self, query: str, project_name: str | None = None) -> list[sqlite3.Row]:
-        where = "WHERE lower(s.name) LIKE lower(?) OR lower(COALESCE(s.qualified_name, '')) LIKE lower(?)"
-        params: list[str] = [f"%{query}%", f"%{query}%"]
+    def search_symbols(self, query: str, project_name: str | None = None, types: list[str] | None = None, limit: int | None = None, offset: int = 0) -> list[sqlite3.Row]:
+        where = "WHERE (lower(s.name) LIKE lower(?) OR lower(COALESCE(s.qualified_name, '')) LIKE lower(?))"
+        params: list = [f"%{query}%", f"%{query}%"]
         if project_name:
             where += " AND p.name = ?"
             params.append(project_name)
+        if types:
+            ph = ",".join("?" * len(types))
+            where += f" AND s.type IN ({ph})"
+            params.extend(types)
 
-        with self.connect() as conn:
-            return conn.execute(
-                f"""
+        sql = f"""
                 SELECT
                     s.type,
                     s.name,
@@ -278,9 +280,13 @@ class Database:
                 JOIN projects p ON f.project_id = p.id
                 {where}
                 ORDER BY p.name, f.path, s.start_line
-                """,
-                params,
-            ).fetchall()
+                """
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
+        with self.connect() as conn:
+            return conn.execute(sql, params).fetchall()
 
     def get_symbols_by_filepath(self, filepath: str, project_name: str | None = None) -> list[sqlite3.Row]:
         where = "WHERE f.path = ?"

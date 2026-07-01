@@ -109,10 +109,22 @@ def project_remove(name: str) -> None:
 
 
 @app.command("search")
-def search(query: str, project: str | None = None) -> None:
+def search(
+    query: str,
+    project: str | None = typer.Option(None, "--project", "-p"),
+    type: str | None = typer.Option(None, "--type", "-t", help="filter e.g. function,class"),
+    limit: int = typer.Option(100, "--limit", "-l"),
+) -> None:
     """Search symbols by name."""
     engine = QueryEngine(db=_database())
-    rows = engine.search(query=query, project_name=project)
+    types = [x.strip() for x in type.split(",")] if type else None
+    if types:
+        exp = set(types)
+        for t in list(types):
+            if t == "function": exp.add("async function")
+            elif t == "method": exp.add("async method")
+        types = list(exp)
+    rows = engine.search(query=query, project_name=project, types=types, limit=limit)
     roots = _get_project_roots()
 
     for r in rows:
@@ -123,6 +135,16 @@ def search(query: str, project: str | None = None) -> None:
         if sig:
             line += f"  {sig}"
         console.print(line)
+
+
+@app.command("search-all")
+def search_all(
+    query: str,
+    type: str | None = typer.Option(None, "--type", "-t", help="filter e.g. function,class"),
+    limit: int = typer.Option(100, "--limit", "-l"),
+) -> None:
+    """Search symbols across ALL projects."""
+    search(query=query, project=None, type=type, limit=limit)
 
 
 @app.command("index")

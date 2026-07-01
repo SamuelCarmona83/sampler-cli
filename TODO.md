@@ -46,15 +46,9 @@ Versión actual: 0.1.2
 
 ## Restante (prioridad alta)
 
-- Mejorar parser Python AST:
-  - soportar AsyncFunctionDef
-  - soportar decoradores/annotations completos
-  - mejorar extracción de calls dinámicas
-- Mejorar store/index para relaciones cross-file avanzadas.
-- Mejorar QueryEngine:
-  - filtros por tipo de símbolo
-  - paginación
-  - command `search-all`
+- Mejorar store/index para relaciones cross-file avanzadas. (name-based resolution in place; advanced scope/import tracking later)
+- (done) Mejorar parser Python AST: AsyncFunctionDef, decorators/annotations in sig+meta, basic calls.
+- (done) Mejorar QueryEngine: type filters (w/ async expand), limit/offset, search-all command.
 
 ## Restante (prioridad media)
 
