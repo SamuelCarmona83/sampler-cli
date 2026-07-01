@@ -19,6 +19,11 @@ class QueryEngine:
         rows = self.db.list_symbols(project_name=project_name, types=types, limit=limit, offset=offset)
         return [dict(row) for row in rows]
 
+    def relationships_among(self, rows: list[dict]) -> list[dict]:
+        """Relationships where both endpoints are within the given rows (for the 'bars' output style)."""
+        ids = [r["id"] for r in rows if r.get("id") is not None]
+        return [dict(row) for row in self.db.get_relationships_among(ids)]
+
     def resolve_symbol(self, name: str, project_name: str | None = None) -> list[dict]:
         """Find symbols matching a name/qualified_name. May return 0, 1, or many (ambiguous) matches."""
         rows = self.db.find_symbols(symbol_name=name, project_name=project_name)

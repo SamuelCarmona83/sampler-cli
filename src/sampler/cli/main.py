@@ -96,7 +96,13 @@ def project_list() -> None:
 
 
 @project_app.command("add")
-def project_add(name: str, path: str, language: str = "python") -> None:
+def project_add(
+    name: str,
+    path: str,
+    language: str = typer.Option(
+        "python", "--language", help="python, go, typescript, javascript, or 'auto' for monorepos"
+    ),
+) -> None:
     """Register project in global config."""
     config = ConfigManager()
     try:
@@ -135,14 +141,57 @@ def project_update(
     console.print(f"Tip: run 'sampler index {project.name}' to re-index with the updated settings.")
 
 
+@project_app.command("deps")
+def project_deps(name: str) -> None:
+    """Show cross-project dependencies detected for a project (via import resolution)."""
+    config = ConfigManager()
+    if config.get_project(name) is None:
+        raise typer.BadParameter(
+            f"Project '{name}' not found.\nUse 'sampler project list' to see registered projects."
+        )
+
+    rows = _database().get_project_dependencies(name)
+    if not rows:
+        console.print(f"No cross-project dependencies found for '{name}'.")
+        console.print("Tip: dependencies are detected during 'sampler index <project>' via import resolution.")
+        return
+
+    for r in rows:
+        if r["source_project"] == name:
+            console.print(f"{name} -> {r['target_project']}  [{r['type']}]")
+        else:
+            console.print(f"{name} <- {r['source_project']}  [{r['type']}]")
+
+
 @app.command("search")
 def search(
     query: str,
     project: str | None = typer.Option(None, "--project", "-p"),
     type: str | None = typer.Option(None, "--type", "-t", help="filter e.g. function,class"),
     limit: int = typer.Option(100, "--limit", "-l"),
+    semantic: bool = typer.Option(
+        False, "--semantic", help="Hybrid semantic+graph ranking (requires 'sampler embed <project>' first)"
+    ),
+    style: str = typer.Option("plain", "--style", help="'plain' (default) or 'bars' (colored relationship view)"),
 ) -> None:
-    """Search symbols by name."""
+    """Search symbols by name (or --semantic for meaning-based hybrid search)."""
+    if semantic:
+        if not project:
+            raise typer.BadParameter("--semantic requires --project <name>.")
+        from sampler.query.semantic import SemanticEngine
+
+        try:
+            results = SemanticEngine(db=_database()).hybrid_search(query=query, project_name=project, limit=limit)
+        except RuntimeError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        if not results:
+            console.print(f"No embeddings found for project '{project}'. Run: sampler embed {project}")
+            return
+        roots = _get_project_roots()
+        for r in results:
+            console.print(f"{_format_symbol_line(r, roots)}  score={r['score']:.3f}")
+        return
+
     engine = QueryEngine(db=_database())
     types = [x.strip() for x in type.split(",")] if type else None
     if types:
@@ -154,14 +203,24 @@ def search(
     rows = engine.search(query=query, project_name=project, types=types, limit=limit)
     roots = _get_project_roots()
 
-    for r in rows:
+    def _line(r: dict) -> str:
         shortf = _short_path(r["project_name"], r["file_path"], roots)
         name = r["qualified_name"] or r["name"]
         sig = r.get("signature") or ""
-        line = f"{r['project_name']}:{shortf}:{r['start_line'] or '-'} {r['type']} {name}"
+        text = f"{r['project_name']}:{shortf}:{r['start_line'] or '-'} {r['type']} {name}"
         if sig:
-            line += f"  {sig}"
-        console.print(line)
+            text += f"  {sig}"
+        return text
+
+    if style == "bars":
+        from sampler.cli.render import render_bars
+
+        edges = engine.relationships_among(rows)
+        render_bars(console, rows, edges, _line)
+        return
+
+    for r in rows:
+        console.print(_line(r))
 
 
 @app.command("search-all")
@@ -240,8 +299,55 @@ def index(project: str) -> None:
     )
 
 
+@app.command("embed")
+def embed(
+    project: str,
+    model: str = typer.Option("BAAI/bge-small-en-v1.5", "--model", help="sentence-transformers model name or local path"),
+    offline: bool = typer.Option(
+        False, "--offline", help="No network access (HuggingFace/etc.) - use a locally cached/local model only"
+    ),
+) -> None:
+    """Generate/refresh local embeddings for a project's symbols (enables 'sampler search --semantic')."""
+    config = ConfigManager()
+    if config.get_project(project) is None:
+        raise typer.BadParameter(
+            f"Project '{project}' not found.\n"
+            f"Run: sampler project add {project} <absolute/path> --language python\n"
+            "Use 'sampler project list' to see registered projects."
+        )
+
+    from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn, TimeElapsedColumn
+
+    from sampler.indexer.embedder import Embedder
+
+    embedder = Embedder(model_name=model, offline=offline)
+
+    try:
+        with Progress(
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(f"Embedding {project}", total=None)
+
+            def _on_progress(done: int, total: int) -> None:
+                if progress.tasks[task].total is None:
+                    progress.update(task, total=total)
+                progress.update(task, completed=done)
+
+            count = embedder.embed_project(db=_database(), project_name=project, on_progress=_on_progress)
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print(f"Embedded [bold]{count}[/bold] symbols for project [bold]{project}[/bold] using {model}")
+
+
 @app.command("overview")
-def overview(filepath: str) -> None:
+def overview(
+    filepath: str,
+    style: str = typer.Option("plain", "--style", help="'plain' (default) or 'bars' (colored relationship view)"),
+) -> None:
     """Show symbols for a file.
 
     Supports absolute and relative paths.
@@ -284,14 +390,24 @@ def overview(filepath: str) -> None:
         console.print("Tip: Make sure the project is registered with 'sampler project add' and indexed with 'sampler index <project>'.")
         return
 
-    for r in rows:
+    def _line(r: dict) -> str:
         name = r["qualified_name"] or r["name"]
         sig = r.get("signature") or ""
         lines = _format_line_range(r["start_line"], r["end_line"])
-        line = f"{lines}: {r['type']} {name}"
+        text = f"{lines}: {r['type']} {name}"
         if sig:
-            line += f"  {sig}"
-        console.print(line)
+            text += f"  {sig}"
+        return text
+
+    if style == "bars":
+        from sampler.cli.render import render_bars
+
+        edges = engine.relationships_among(rows)
+        render_bars(console, rows, edges, _line)
+        return
+
+    for r in rows:
+        console.print(_line(r))
 
 
 def _format_symbol_line(r: dict, roots: dict[str, Path]) -> str:
@@ -356,6 +472,7 @@ def usages(
 def related(
     symbol: str,
     project: str | None = typer.Option(None, "--project", "-p"),
+    style: str = typer.Option("plain", "--style", help="'plain' (default) or 'bars' (colored relationship view)"),
 ) -> None:
     """Show symbols related via CONTAINS (parent class / child methods)."""
     engine = QueryEngine(db=_database())
@@ -366,6 +483,14 @@ def related(
     if not rows:
         console.print(f"No related symbols found for {symbol}.")
         return
+
+    if style == "bars":
+        from sampler.cli.render import render_bars
+
+        edges = engine.relationships_among(rows)
+        render_bars(console, rows, edges, lambda r: f"{_format_symbol_line(r, roots)}  [{r['relation']}]")
+        return
+
     for r in rows:
         console.print(f"{_format_symbol_line(r, roots)}  [{r['relation']}]")
 

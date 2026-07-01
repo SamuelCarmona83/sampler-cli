@@ -136,7 +136,7 @@ class Database:
                 (project_id,),
             )
             conn.execute(
-                "DELETE FROM relationships WHERE target_id IN (SELECT id FROM symbols WHERE file_id IN (SELECT id FROM files WHERE project_id = ?))",
+                "DELETE FROM embeddings WHERE symbol_id IN (SELECT id FROM symbols WHERE file_id IN (SELECT id FROM files WHERE project_id = ?))",
                 (project_id,),
             )
             conn.execute(
@@ -147,6 +147,47 @@ class Database:
             conn.execute("DELETE FROM project_dependencies WHERE source_project_id = ? OR target_project_id = ?", (project_id, project_id))
             conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             conn.commit()
+
+    def insert_project_dependency(
+        self, source_project_id: int, target_project_id: int, dep_type: str, metadata: dict | None = None
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO project_dependencies(source_project_id, target_project_id, type, metadata)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(source_project_id, target_project_id, type) DO UPDATE SET
+                    metadata=excluded.metadata
+                """,
+                (
+                    source_project_id,
+                    target_project_id,
+                    dep_type,
+                    json.dumps(metadata) if metadata is not None else None,
+                ),
+            )
+            conn.commit()
+
+    def clear_project_dependencies_from(self, project_id: int) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM project_dependencies WHERE source_project_id = ?", (project_id,))
+            conn.commit()
+
+    def get_project_dependencies(self, project_name: str) -> list[sqlite3.Row]:
+        sql = """
+                SELECT
+                    pd.type,
+                    pd.metadata,
+                    src.name AS source_project,
+                    tgt.name AS target_project
+                FROM project_dependencies pd
+                JOIN projects src ON pd.source_project_id = src.id
+                JOIN projects tgt ON pd.target_project_id = tgt.id
+                WHERE src.name = ? OR tgt.name = ?
+                ORDER BY src.name, tgt.name
+                """
+        with self.connect() as conn:
+            return conn.execute(sql, (project_name, project_name)).fetchall()
 
     def get_file(self, project_id: int, path: str) -> sqlite3.Row | None:
         with self.connect() as conn:
@@ -185,6 +226,10 @@ class Database:
             )
             conn.execute(
                 "DELETE FROM relationships WHERE target_id IN (SELECT id FROM symbols WHERE file_id = ?)",
+                (file_id,),
+            )
+            conn.execute(
+                "DELETE FROM embeddings WHERE symbol_id IN (SELECT id FROM symbols WHERE file_id = ?)",
                 (file_id,),
             )
             conn.execute("DELETE FROM symbols WHERE file_id = ?", (file_id,))
@@ -329,6 +374,23 @@ class Database:
         with self.connect() as conn:
             return conn.execute(sql, (symbol_id, symbol_id, symbol_id, symbol_id)).fetchall()
 
+    def get_relationships_among(self, symbol_ids: list[int]) -> list[sqlite3.Row]:
+        """Relationships where BOTH endpoints are within the given set of symbol ids.
+
+        Used by the 'bars' output style to draw connections only between symbols
+        already shown in the current result set.
+        """
+        if not symbol_ids:
+            return []
+        placeholders = ",".join("?" * len(symbol_ids))
+        sql = f"""
+                SELECT source_id, target_id, type, line
+                FROM relationships
+                WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders})
+                """
+        with self.connect() as conn:
+            return conn.execute(sql, [*symbol_ids, *symbol_ids]).fetchall()
+
     def insert_relationship(self, source_id: int, target_id: int, relation: dict) -> None:
         with self.connect() as conn:
             metadata = relation.get("metadata")
@@ -373,6 +435,7 @@ class Database:
 
         sql = f"""
                 SELECT
+                    s.id,
                     s.type,
                     s.name,
                     s.qualified_name,
@@ -405,6 +468,7 @@ class Database:
             return conn.execute(
                 f"""
                 SELECT
+                    s.id,
                     s.type,
                     s.name,
                     s.qualified_name,
@@ -432,10 +496,12 @@ class Database:
 
         sql = f"""
                 SELECT
+                    s.id,
                     s.type,
                     s.name,
                     s.qualified_name,
                     s.signature,
+                    s.docstring,
                     s.start_line,
                     s.end_line,
                     f.path AS file_path,
@@ -452,3 +518,44 @@ class Database:
 
         with self.connect() as conn:
             return conn.execute(sql, params).fetchall()
+
+    def upsert_embedding(self, symbol_id: int, model: str, dim: int, vector: bytes) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO embeddings(symbol_id, model, dim, vector)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(symbol_id) DO UPDATE SET
+                    model=excluded.model,
+                    dim=excluded.dim,
+                    vector=excluded.vector,
+                    created_at=CURRENT_TIMESTAMP
+                """,
+                (symbol_id, model, dim, vector),
+            )
+            conn.commit()
+
+    def get_embeddings_for_project(self, project_name: str) -> list[sqlite3.Row]:
+        sql = """
+                SELECT
+                    e.symbol_id,
+                    e.model,
+                    e.dim,
+                    e.vector,
+                    s.type,
+                    s.name,
+                    s.qualified_name,
+                    s.signature,
+                    s.start_line,
+                    s.end_line,
+                    f.path AS file_path,
+                    f.last_indexed,
+                    p.name AS project_name
+                FROM embeddings e
+                JOIN symbols s ON e.symbol_id = s.id
+                JOIN files f ON s.file_id = f.id
+                JOIN projects p ON f.project_id = p.id
+                WHERE p.name = ?
+                """
+        with self.connect() as conn:
+            return conn.execute(sql, (project_name,)).fetchall()
