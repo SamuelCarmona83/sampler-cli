@@ -1,14 +1,24 @@
-# Sampler
+<p align="center">
+  <img src="./assets/sampler.png" alt="Sampler logo" width="220">
+</p>
 
-Token-efficient CLI for indexing and searching code symbols across multiple projects.
+<h1 align="center">Sampler</h1>
 
-Current version: 0.4.4
+<p align="center">
+  <strong>Token-efficient CLI for indexing and searching code symbols across projects.</strong><br>
+  Compact output. Short paths. Low-noise symbol views.
+</p>
 
-Designed for humans and agents: compact default output, short paths, and low-noise symbol views.
+<p align="center">
+  <a href="https://pypi.org/project/sampler-cli/"><img src="https://img.shields.io/pypi/v/sampler-cli" alt="PyPI version"></a>
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue" alt="Python 3.11+">
+</p>
 
-## Requirements
+---
 
-- Python 3.11+
+> *The code isn't the problem. The problem is the distance between you and the code.*
+>
+> Sampler closes that distance. One index. One query. The right symbol, the right relationship, the right context — delivered without the noise. Because in a world drowning in repositories, the person who finds what matters first is the person who moves the work forward.
 
 ## Installation
 
@@ -16,7 +26,7 @@ Designed for humans and agents: compact default output, short paths, and low-noi
 pip install sampler-cli
 ```
 
-Development setup:
+Development:
 
 ```bash
 pip install -e '.[dev]'
@@ -39,48 +49,63 @@ sampler symbols myproj
 sampler overview src/main.py
 ```
 
-## Command Overview
+## Commands
 
-Core:
-- `sampler version [--plain]`
-- `sampler init`
-- `sampler index <project>`
-- `sampler search <query> [--project <name>] [--type <t>] [--limit <n>] [--semantic] [--style plain|bars]`
-- `sampler search-all <query> [--type <t>] [--limit <n>]`
-- `sampler symbols <project> [--type <t>] [--limit <n>]`
-- `sampler overview <filepath> [--style plain|bars]`
+### Core
 
-Relationships:
-- `sampler callers <symbol> [--project <name>] [--file <path-or-suffix>]`
-- `sampler usages <symbol> [--project <name>] [--file <path-or-suffix>]`
-- `sampler related <symbol> [--project <name>] [--file <path-or-suffix>] [--style plain|bars]`
-- Selector alternativo: `<path>:<symbol>` (ej. `app/utils/helpers.py:format_kda`)
+| Command | Description |
+| --- | --- |
+| `sampler version [--plain]` | Show version |
+| `sampler init` | Initialize Sampler config and data directory |
+| `sampler index <project>` | Index a project's symbols and relationships |
+| `sampler search <query>` | Search symbols across a project |
+| `sampler search-all <query>` | Search across all indexed projects |
+| `sampler symbols <project>` | List symbols in a project |
+| `sampler overview <filepath>` | Show symbol overview for a file |
 
-Project management:
-- `sampler project add <name> <path> --language <python|go|typescript|javascript|vue|auto>`
-- `sampler project update <name> [--path <abs-path>] [--language <lang>]`
-- `sampler project list`
-- `sampler project deps <name>`
-- `sampler project remove <name>`
+**Search options:** `--project`, `--type`, `--limit`, `--semantic`, `--style plain|bars`
 
-Config:
-- `sampler config show`
-- `sampler config embeddings [--provider P] [--model M]`
+### Relationships
 
-Semantic and analysis:
-- `sampler embed <project> [--batch-size <n>]`
-- `sampler stale-code <project> [--limit <n>]`
+| Command | Description |
+| --- | --- |
+| `sampler callers <symbol>` | Find callers of a symbol |
+| `sampler usages <symbol>` | Find usages of a symbol |
+| `sampler related <symbol>` | Find related symbols |
+
+Symbols can also be selected as `<path>:<symbol>`, e.g. `app/utils/helpers.py:format_kda`.
+
+### Project Management
+
+| Command | Description |
+| --- | --- |
+| `sampler project add <name> <path> --language <lang>` | Add a project |
+| `sampler project update <name>` | Update project path or language |
+| `sampler project list` | List projects |
+| `sampler project deps <name>` | Show project dependencies |
+| `sampler project remove <name>` | Remove a project |
+
+Languages: `python`, `go`, `typescript`, `javascript`, `vue`, `auto`.
+
+### Config & Analysis
+
+| Command | Description |
+| --- | --- |
+| `sampler config show` | Show current config |
+| `sampler config embeddings` | Configure embedding provider |
+| `sampler embed <project>` | Precompute embeddings |
+| `sampler stale-code <project>` | Find candidate stale code |
 
 ## Embeddings & Semantic Search
 
-`sampler search --semantic` (and hybrid ranking) supports pluggable providers via the adapter pattern:
+`sampler search --semantic` uses a pluggable adapter pattern:
 
-- **Default**: `bge-small` (BAAI/bge-small-en-v1.5 via fastembed — lightweight ONNX, ~384 dim, local).
-- Other built-ins: `hash` (always-on deterministic fallback), `ollama` (e.g. nomic-embed-text), `nomic`, `openai`, `fastembed`.
-- TF-IDF (sklearn, on-the-fly, no pre-embed) remains the fast lexical primary when no provider embeddings are precomputed for the active model.
-- Hash fingerprint is the final always-available fallback.
+- **Default:** `bge-small` (BAAI/bge-small-en-v1.5 via fastembed — local ONNX, ~384 dim)
+- **Built-ins:** `hash` (deterministic fallback), `ollama`, `nomic`, `openai`, `fastembed`
+- **Lexical primary:** TF-IDF (sklearn, on-the-fly, no pre-embedding required)
+- **Final fallback:** hash fingerprint (always available)
 
-Configuration (in `~/.sampler/config.yaml` or via `sampler config embeddings ...`):
+Configure in `~/.sampler/config.yaml` or via `sampler config embeddings`:
 
 ```yaml
 embeddings:
@@ -90,44 +115,43 @@ embeddings:
   # base_url: "http://localhost:11434"
 ```
 
-Install:
+Install extras:
 
 ```bash
-# For default BGE (recommended for most users)
-pip install 'sampler-cli[embeddings]'
-
-# Or for Ollama / OpenAI only
+pip install 'sampler-cli[embeddings]'        # BGE (recommended)
 pip install 'sampler-cli[ollama-embeddings]'
 pip install 'sampler-cli[openai-embeddings]'
 ```
 
-`sampler embed <project>` precomputes vectors using the **current configured provider** (progress bar). Changing provider? Re-run `embed` after updating config (old vectors are ignored until re-embedded).
+Run `sampler embed <project>` to precompute vectors for the active provider. Change providers? Re-run `embed` after updating config.
 
-Offline / air-gapped: `provider: hash` (or just don't install the embeddings extra — TF-IDF + hash still work if you have `[semantic]`).
+Offline or air-gapped: set `provider: hash`, or rely on TF-IDF + hash with the `[semantic]` extra.
 
 ## Language Support
 
-- Python parser: stdlib AST (stable)
-- Go parser: tree-sitter-go (real extraction)
-- TypeScript/JavaScript parser: tree-sitter-typescript (real extraction)
-- Vue parser: extracts `<script>`/`<script setup>` + delegates to TS/JS parser (supports lang=ts/js etc.)
-- `--language auto`: per-file language detection for monorepos/multi-language projects (for auto projects, `project list` shows detected languages + file % breakdown)
+| Language | Parser |
+| --- | --- |
+| Python | stdlib AST |
+| Go | tree-sitter-go |
+| TypeScript / JavaScript | tree-sitter-typescript |
+| Vue | Extracts `<script>` / `<script setup>`, delegates to TS/JS parser |
+| Auto | Per-file detection for monorepos and multi-language projects |
 
 ## Stale Code Detection
 
-`sampler stale-code <project>` reports candidate stale functions/methods where:
+`sampler stale-code <project>` finds functions that may no longer be needed:
 
-- function is called from test files
-- function has zero non-test callers in project call graph
-- symbol is defined in production code (symbols defined in test files are excluded)
+- Called only from test files
+- Zero non-test callers in the project call graph
+- Defined in production code
 
-Test file detection supports common multi-language patterns:
+Supported test patterns:
 
 - Python: `tests/`, `test_*.py`, `*_test.py`
 - Go: `*_test.go`
-- TypeScript/JavaScript/Vue: `__tests__/`, `test/`, `spec/`, `*.test.*`, `*.spec.*` (incl. `*.test.vue`)
+- TypeScript / JavaScript / Vue: `__tests__/`, `test/`, `spec/`, `*.test.*`, `*.spec.*`
 
-This is heuristic signal, not guaranteed dead-code proof.
+This is a heuristic signal, not a guarantee of dead code.
 
 ## Examples
 
@@ -146,7 +170,7 @@ myproj:src/utils/retry.py:12-28 function retry_request  test_callers=2 non_test_
 ## Data Location
 
 - Config: `~/.sampler/config.yaml`
-- DB: `~/.sampler/graph.db`
+- Database: `~/.sampler/graph.db`
 
 ## Running Tests
 
@@ -156,5 +180,5 @@ pytest -q
 
 ## Notes
 
-- Compact output is default by design (token-efficient for agent workflows).
-- For broader roadmap details, see `TODO.md` and `PLAN.md`.
+- Compact output is the default by design — built for agent workflows and fast human scanning.
+- For roadmap details, see [TODO.md](TODO.md) and [PLAN.md](PLAN.md).
