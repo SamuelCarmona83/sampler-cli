@@ -1,6 +1,6 @@
 [project]
 name = "sampler-cli"
-version = "0.3.0"
+version = "0.4.0"
 description = "Token-efficient CLI for indexing and searching code symbols (Python-first, designed for minimal LLM/agent context size)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -37,9 +37,15 @@ dev = [
     "mypy>=1.7.0",
     "numpy>=1.26.0",
     "scikit-learn>=1.4.0",
+    # dev pulls the common embeddings stack too
+    "fastembed>=0.2.0",
 ]
 mcp = ["fastmcp>=0.1.0"]
 semantic = ["numpy>=1.26.0", "scikit-learn>=1.4.0"]
+# Embeddings providers (pluggable, lazy). bge-small (default) is lightweight via fastembed (ONNX).
+embeddings = ["fastembed>=0.2.0", "numpy>=1.26.0"]
+ollama-embeddings = ["ollama>=0.3.0"]
+openai-embeddings = ["openai>=1.0.0"]
 
 [project.scripts]
 sampler = "sampler.cli.main:app"

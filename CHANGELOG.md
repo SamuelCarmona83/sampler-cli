@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.4.0] - 2026-07-01
+
+### Added
+- Embeddings layer redesigned as pluggable **EmbeddingProvider** adapter (per design in user request).
+  - Interface: `embed(text, *, for_query=False) -> list[float]`, `embed_batch`, `.name`, `.dimension`, `.model_id`.
+  - Providers: `BGEProvider` (default) + `HashProvider` (offline). Others (Nomic/Ollama/OpenAI/Fast) second stage per request. Interface supports adding without touching rest of system.
+  - Global config support under `embeddings:` (`provider`, `model`, `base_url`).
+  - New CLI: `sampler config show`, `sampler config embeddings --provider ...`.
+- `sampler embed` now uses the active provider from config; progress + final message include provider details.
+- Semantic scoring prefers provider vectors (when pre-embedded + model matches) → TF-IDF → hash.
+- Much cleaner command output: Rich markup (dim paths, bold symbol names, colored types by kind, highlighted scores), Rich tables for `project list`, consistent ✓ success messages, less noisy stale-code etc.
+- New optional extras: `[embeddings]`, `[ollama-embeddings]`, `[openai-embeddings]`.
+- `tests/test_embeddings.py` + expanded semantic/config/cli tests with provider mocks.
+- Helpful errors + offline guidance when ML provider deps missing.
+- Updated docs (README embeddings section + examples, TODO, CLI_REFERENCE, ARCHITECTURE).
+
+### Changed
+- `Embedder` evolved to accept `provider=` and default to config-driven provider while preserving full backward compat + legacy encode_fn/hash_bits paths.
+- `embed` help and messages updated; `project list` now uses table by default.
+- All existing commands continue to work; hash/TF-IDF paths unchanged for users without embeddings extras.
+
+### Notes
+- Default provider is now `bge-small`. Existing projects keep working (hash fallback in scoring).
+- To use real vectors: `pip install 'sampler-cli[embeddings]'` then `sampler embed <proj>`.
+- For fully offline: `sampler config embeddings --provider hash`.
+- All 42 tests green.
+
 ## [0.3.0] - 2026-07-01
 
 ### Added

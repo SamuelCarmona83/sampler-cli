@@ -15,10 +15,24 @@ class ProjectConfig(BaseModel):
     enabled: bool = True
 
 
+class EmbeddingsConfig(BaseModel):
+    """Configuration for the pluggable embedding provider layer.
+
+    provider examples: "bge-small" (default), "hash", "ollama", "nomic", "openai", "fastembed".
+    model: override for ollama/nomic/openai etc.
+    base_url: for ollama or OpenAI-compatible endpoints.
+    API keys (e.g. OPENAI) are read from environment, never stored in config.
+    """
+    provider: str = "bge-small"
+    model: str | None = None
+    base_url: str | None = None
+
+
 class GlobalConfig(BaseModel):
     version: int = 1
     cache_dir: str = str(default_data_dir())
     projects: dict[str, ProjectConfig] = Field(default_factory=dict)
+    embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
 
 
 class ConfigManager:
@@ -103,3 +117,28 @@ class ConfigManager:
     def list_projects(self) -> list[ProjectConfig]:
         config = self.load()
         return list(config.projects.values())
+
+    # --- Embeddings config (pluggable providers) ---
+
+    def get_embeddings_config(self) -> EmbeddingsConfig:
+        """Return the embeddings sub-config (always safe; defaults to bge-small)."""
+        config = self.load()
+        return config.embeddings
+
+    def update_embeddings(
+        self,
+        provider: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ) -> EmbeddingsConfig:
+        """Update embeddings provider settings and persist. Partial updates supported."""
+        config = self.load()
+        current = config.embeddings
+        updated = EmbeddingsConfig(
+            provider=provider if provider is not None else current.provider,
+            model=model if model is not None else current.model,
+            base_url=base_url if base_url is not None else current.base_url,
+        )
+        config.embeddings = updated
+        self.save(config)
+        return updated

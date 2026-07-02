@@ -9,10 +9,39 @@ from sampler.db import Database
 from sampler.indexer.builder import IndexBuilder
 from sampler.query.engine import QueryEngine
 
+# Embeddings provider support (lazy, optional)
+try:
+    from sampler.embeddings import get_embedding_provider
+except Exception:
+    get_embedding_provider = None  # type: ignore
+
 app = typer.Typer(help="Sampler CLI", no_args_is_help=True)
 project_app = typer.Typer(help="Project management commands")
 app.add_typer(project_app, name="project")
+
+config_app = typer.Typer(help="Configuration commands (global ~/.sampler/config.yaml)")
+app.add_typer(config_app, name="config")
 console = Console()
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"sampler {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def app_callback(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show sampler version and exit.",
+    ),
+) -> None:
+    """Sampler CLI root callback."""
 
 
 def _database() -> Database:
@@ -74,16 +103,81 @@ def init() -> None:
     console.print(f"Initialized [bold]{data_dir}[/bold]")
 
 
+# --- Config commands (embeddings provider etc.) ---
+
+@config_app.command("show")
+def config_show() -> None:
+    """Show current global configuration (including embeddings provider)."""
+    cfg = ConfigManager().load()
+    console.print(f"[bold]cache_dir:[/bold] {cfg.cache_dir}")
+    console.print(f"[bold]version:[/bold] {cfg.version}")
+    emb = cfg.embeddings
+    console.print("\n[bold]embeddings:[/bold]")
+    console.print(f"  provider: [cyan]{emb.provider}[/cyan]")
+    if emb.model:
+        console.print(f"  model: {emb.model}")
+    if emb.base_url:
+        console.print(f"  base_url: {emb.base_url}")
+    console.print("\n[dim]Edit ~/.sampler/config.yaml directly or use 'sampler config embeddings ...'[/dim]")
+
+
+@config_app.command("embeddings")
+def config_embeddings(
+    provider: str | None = typer.Option(None, "--provider", "-p", help="bge-small | hash | ollama | nomic | openai | fastembed"),
+    model: str | None = typer.Option(None, "--model", "-m", help="model name for ollama/nomic/openai (e.g. nomic-embed-text)"),
+    base_url: str | None = typer.Option(None, "--base-url", help="Ollama URL or compatible endpoint"),
+) -> None:
+    """Get or set the embeddings provider configuration.
+
+    Examples:
+      sampler config embeddings --provider bge-small
+      sampler config embeddings --provider ollama --model nomic-embed-text
+      sampler config embeddings --provider hash          # offline / no ML deps
+    """
+    cm = ConfigManager()
+    if provider is None and model is None and base_url is None:
+        # Show current
+        emb = cm.get_embeddings_config()
+        console.print(f"provider: [cyan]{emb.provider}[/cyan]")
+        if emb.model:
+            console.print(f"model: {emb.model}")
+        if emb.base_url:
+            console.print(f"base_url: {emb.base_url}")
+        return
+
+    updated = cm.update_embeddings(provider=provider, model=model, base_url=base_url)
+    console.print("[green]✓[/green] Embeddings config updated:")
+    console.print(f"  provider: [cyan]{updated.provider}[/cyan]")
+    if updated.model:
+        console.print(f"  model: {updated.model}")
+    if updated.base_url:
+        console.print(f"  base_url: {updated.base_url}")
+    console.print("\n[dim]Run 'sampler embed <project>' to precompute vectors for the new provider.[/dim]")
+
+
 @project_app.command("list")
 def project_list() -> None:
-    """List registered projects."""
+    """List registered projects (clean table view)."""
     config = ConfigManager()
     projects = config.list_projects()
     home = str(Path.home().resolve())
 
-    for project in projects:
+    if not projects:
+        console.print("[dim]No projects registered. Use 'sampler project add <name> <path> --language auto'[/dim]")
+        return
+
+    # Rich table = much cleaner output
+    from rich.table import Table
+
+    table = Table(title="Projects", show_header=True, header_style="bold cyan")
+    table.add_column("Name", style="bold")
+    table.add_column("Path")
+    table.add_column("Language", style="green")
+    table.add_column("Enabled", justify="center")
+
+    for p in projects:
         try:
-            pp = Path(project.path).resolve()
+            pp = Path(p.path).resolve()
             ps = str(pp)
             if ps.startswith(home):
                 disp = "~" + ps[len(home):]
@@ -91,8 +185,11 @@ def project_list() -> None:
                 parts = pp.parts
                 disp = "/".join(parts[-2:]) if len(parts) > 2 else ps
         except Exception:
-            disp = project.path
-        console.print(f"{project.name} {disp}")
+            disp = p.path
+        enabled = "[green]yes[/green]" if p.enabled else "[dim]no[/dim]"
+        table.add_row(p.name, disp, p.language, enabled)
+
+    console.print(table)
 
 
 @project_app.command("add")
@@ -168,7 +265,7 @@ def search(
     query: str,
     project: str | None = typer.Option(None, "--project", "-p"),
     type: str | None = typer.Option(None, "--type", "-t", help="filter e.g. function,class"),
-    limit: int = typer.Option(100, "--limit", "-l"),
+    limit: int = typer.Option(10, "--limit", "-l"),
     semantic: bool = typer.Option(
         False, "--semantic", help="Hybrid semantic+graph ranking (requires 'sampler embed <project>' first)"
     ),
@@ -189,7 +286,9 @@ def search(
             return
         roots = _get_project_roots()
         for r in results:
-            console.print(f"{_format_symbol_line(r, roots)}  score={r['score']:.3f}")
+            line = _format_symbol_line(r, roots)
+            score = r.get("score", 0.0)
+            console.print(f"{line}  [yellow]score={score:.3f}[/yellow]")
         return
 
     engine = QueryEngine(db=_database())
@@ -207,9 +306,14 @@ def search(
         shortf = _short_path(r["project_name"], r["file_path"], roots)
         name = r["qualified_name"] or r["name"]
         sig = r.get("signature") or ""
-        text = f"{r['project_name']}:{shortf}:{r['start_line'] or '-'} {r['type']} {name}"
+        # Cleaner + rich markup: dim path, bold name, colored type
+        type_col = "green" if "function" in (r.get("type") or "") else "blue" if "class" in (r.get("type") or "") else "cyan"
+        text = (
+            f"[dim]{r['project_name']}[/]:[dim]{shortf}:{r['start_line'] or '-'}[/] "
+            f"[{type_col}]{r['type']}[/] [bold]{name}[/bold]"
+        )
         if sig:
-            text += f"  {sig}"
+            text += f"  [dim]{sig}[/dim]"
         return text
 
     if style == "bars":
@@ -267,9 +371,13 @@ def symbols(
         name = r["qualified_name"] or r["name"]
         sig = r.get("signature") or ""
         lines = _format_line_range(r["start_line"], r["end_line"])
-        line = f"{r['project_name']}:{shortf}:{lines} {r['type']} {name}"
+        type_col = "green" if "function" in (r.get("type") or "") else "blue" if "class" in (r.get("type") or "") else "cyan"
+        line = (
+            f"[dim]{r['project_name']}[/]:[dim]{shortf}:{lines}[/] "
+            f"[{type_col}]{r['type']}[/] [bold]{name}[/bold]"
+        )
         if sig:
-            line += f"  {sig}"
+            line += f"  [dim]{sig}[/dim]"
         console.print(line)
 
 
@@ -293,8 +401,8 @@ def index(project: str) -> None:
         language=project_cfg.language,
     )
     console.print(
-        "Indexed project "
-        f"[bold]{stats['project']}[/bold]: discovered={stats['discovered']} indexed={stats['indexed']} "
+        f"[green]✓[/green] Indexed [bold]{stats['project']}[/bold]: "
+        f"discovered={stats['discovered']} indexed={stats['indexed']} "
         f"skipped={stats['skipped']} failed={stats['failed']}"
     )
 
@@ -302,9 +410,12 @@ def index(project: str) -> None:
 @app.command("embed")
 def embed(
     project: str,
-    batch_size: int = typer.Option(32, "--batch-size", help="Batch size for hash fingerprint generation"),
+    batch_size: int = typer.Option(32, "--batch-size", help="Batch size for embedding generation"),
 ) -> None:
-    """Generate/refresh local hash fingerprints for symbols (fallback semantic backend cache)."""
+    """Generate/refresh embeddings for symbols using the configured provider (default: bge-small).
+
+    Pre-computed embeddings power `search --semantic`. Run after `index` (or when provider changes).
+    """
     config = ConfigManager()
     if config.get_project(project) is None:
         raise typer.BadParameter(
@@ -317,7 +428,30 @@ def embed(
 
     from sampler.indexer.embedder import Embedder
 
-    embedder = Embedder()
+    # Respect current embeddings config (bge-small, ollama, hash, ...)
+    if get_embedding_provider is not None:
+        try:
+            provider = get_embedding_provider()
+            embedder = Embedder(provider=provider)
+        except RuntimeError as e:
+            from rich.panel import Panel
+
+            console.print(Panel.fit(str(e), title="Error", border_style="red"))
+            raise typer.Exit(code=1)
+    else:
+        embedder = Embedder()
+
+    prov_name = getattr(embedder.provider, "name", "hash")
+    model_id = getattr(embedder.provider, "model_id", embedder.backend)
+
+    # Preflight provider before showing progress; avoids odd 0/? bar + usage error for missing deps.
+    try:
+        embedder.provider.embed("sampler health probe", for_query=True)
+    except RuntimeError as exc:
+        from rich.panel import Panel
+
+        console.print(Panel.fit(str(exc), title="Error", border_style="red"))
+        raise typer.Exit(code=1)
 
     try:
         with Progress(
@@ -327,7 +461,7 @@ def embed(
             TimeElapsedColumn(),
             console=console,
         ) as progress:
-            task = progress.add_task(f"Embedding {project}", total=None)
+            task = progress.add_task(f"Embedding {project} ({prov_name})", total=None)
 
             def _on_progress(done: int, total: int) -> None:
                 if progress.tasks[task].total is None:
@@ -338,10 +472,14 @@ def embed(
                 db=_database(), project_name=project, batch_size=batch_size, on_progress=_on_progress
             )
     except RuntimeError as exc:
-        raise typer.BadParameter(str(exc)) from exc
+        from rich.panel import Panel
+
+        console.print(Panel.fit(str(exc), title="Error", border_style="red"))
+        raise typer.Exit(code=1)
+
     console.print(
-        f"Embedded [bold]{count}[/bold] symbols for project [bold]{project}[/bold] "
-        "using hash fingerprint backend"
+        f"[green]✓[/green] Embedded [bold]{count}[/bold] symbols for [bold]{project}[/bold] "
+        f"using [bold]{prov_name}[/bold] ({model_id})"
     )
 
 
@@ -396,9 +534,10 @@ def overview(
         name = r["qualified_name"] or r["name"]
         sig = r.get("signature") or ""
         lines = _format_line_range(r["start_line"], r["end_line"])
-        text = f"{lines}: {r['type']} {name}"
+        type_col = "green" if "function" in (r.get("type") or "") else "blue" if "class" in (r.get("type") or "") else "cyan"
+        text = f"{lines}: [{type_col}]{r['type']}[/] [bold]{name}[/bold]"
         if sig:
-            text += f"  {sig}"
+            text += f"  [dim]{sig}[/dim]"
         return text
 
     if style == "bars":
@@ -416,7 +555,11 @@ def _format_symbol_line(r: dict, roots: dict[str, Path]) -> str:
     shortf = _short_path(r["project_name"], r["file_path"], roots)
     name = r["qualified_name"] or r["name"]
     lines = _format_line_range(r["start_line"], r["end_line"])
-    return f"{r['project_name']}:{shortf}:{lines} {r['type']} {name}"
+    type_col = "green" if "function" in (r.get("type") or "") else "blue" if "class" in (r.get("type") or "") else "cyan"
+    return (
+        f"[dim]{r['project_name']}[/]:[dim]{shortf}:{lines}[/] "
+        f"[{type_col}]{r['type']}[/] [bold]{name}[/bold]"
+    )
 
 
 def _resolve_or_report(matches: list[dict], symbol: str, roots: dict[str, Path]) -> bool:
@@ -467,7 +610,7 @@ def usages(
         console.print(f"No usages found for {symbol}.")
         return
     for r in rows:
-        console.print(f"{_format_symbol_line(r, roots)}  [{r['relation_type']}]")
+        console.print(f"{_format_symbol_line(r, roots)}  [magenta][{r['relation_type']}][/magenta]")
 
 
 @app.command("related")
@@ -494,7 +637,7 @@ def related(
         return
 
     for r in rows:
-        console.print(f"{_format_symbol_line(r, roots)}  [{r['relation']}]")
+        console.print(f"{_format_symbol_line(r, roots)}  [magenta][{r['relation']}][/magenta]")
 
 
 @app.command("stale-code")
@@ -520,9 +663,10 @@ def stale_code(
         callers = ", ".join(r["test_callers"][:3])
         if len(r["test_callers"]) > 3:
             callers += ", ..."
+        line = _format_symbol_line(r, roots)
         console.print(
-            f"{_format_symbol_line(r, roots)}  test_callers={r['test_caller_count']} "
-            f"non_test_callers={r['non_test_caller_count']}  [{callers}]"
+            f"{line}  [yellow]test={r['test_caller_count']}[/] "
+            f"[dim]non_test={r['non_test_caller_count']}[/]  [dim]{callers}[/dim]"
         )
 
 

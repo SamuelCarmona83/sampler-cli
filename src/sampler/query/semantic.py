@@ -5,10 +5,17 @@ from datetime import datetime
 from sampler.db import Database
 from sampler.indexer.embedder import Embedder, build_embedding_text, tokenize_text
 
+# Provider layer (for vector scoring when precomputed embeddings match the active provider)
+try:
+    from sampler.embeddings import EmbeddingProvider
+except Exception:
+    EmbeddingProvider = None  # type: ignore
+
 
 class SemanticEngine:
     def __init__(self, db: Database, embedder: Embedder | None = None) -> None:
         self.db = db
+        # Embedder now carries the active EmbeddingProvider (config-driven by default)
         self.embedder = embedder or Embedder()
 
     def _project_rows(self, project_name: str | None) -> list[dict]:
@@ -36,8 +43,57 @@ class SemanticEngine:
         scored.sort(key=lambda pair: pair[0], reverse=True)
         return scored[:pool]
 
+    def _provider_vector_scored_candidates(self, query: str, project_name: str | None, pool: int):
+        """Preferred path when a real (non-hash) provider has precomputed embeddings.
+
+        Uses provider.embed(..., for_query=True) for the query vector + cosine against
+        stored vectors whose model matches the current provider's model_id.
+        Falls back to [] (so caller can try TF-IDF/hash).
+        """
+        if not project_name:
+            return []
+        try:
+            import numpy as np
+        except ImportError:
+            return []
+
+        provider = getattr(self.embedder, "provider", None)
+        if provider is None or provider.name == "hash":
+            return []
+
+        embeddings = self.db.get_embeddings_for_project(project_name)
+        if not embeddings:
+            return []
+
+        target_model = provider.model_id
+        matching = [e for e in embeddings if e["model"] == target_model]
+        if not matching:
+            # provider changed or not embedded yet for this provider -> fallback
+            return []
+
+        try:
+            query_vec = np.array(provider.embed(query, for_query=True), dtype="float32")
+        except Exception:
+            return []
+
+        scored = []
+        for row in matching:
+            try:
+                vec = np.frombuffer(row["vector"], dtype="float32")
+                if len(vec) != len(query_vec):
+                    continue
+                sim = float(np.dot(query_vec, vec) / (np.linalg.norm(query_vec) * np.linalg.norm(vec) + 1e-12))
+                scored.append((sim, row))
+            except Exception:
+                continue
+
+        if not scored:
+            return []
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return scored[:pool]
+
     def _hash_scored_candidates(self, query: str, rows: list[dict], project_name: str | None, pool: int):
-        """Fallback backend: deterministic hash fingerprints (no ML model dependency)."""
+        """Last-resort backend: deterministic hash fingerprints (no ML, always available)."""
         try:
             import numpy as np
         except ImportError as exc:
@@ -71,9 +127,18 @@ class SemanticEngine:
 
     def _scored_candidates(self, query: str, project_name: str | None, pool: int):
         rows = self._project_rows(project_name)
+
+        # 1. Real provider vectors (BGE/Ollama/OpenAI etc.) if pre-embedded and model matches
+        prov = self._provider_vector_scored_candidates(query, project_name, pool)
+        if prov:
+            return prov
+
+        # 2. TF-IDF (fast, on-the-fly, lexical, no pre-embed needed, sklearn optional)
         tfidf = self._tfidf_scored_candidates(query, rows, pool)
         if tfidf:
             return tfidf
+
+        # 3. Hash fingerprint (always works, deterministic local fallback)
         return self._hash_scored_candidates(query, rows, project_name, pool)
 
     def semantic_search(self, query: str, project_name: str | None = None, limit: int = 10) -> list[dict]:

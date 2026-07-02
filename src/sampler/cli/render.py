@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 from rich.console import Console
+from rich.table import Table
 
 # Rotating color palette used to give each connected group of symbols its own
 # color, similar to how rhyme schemes are color-coded in rap/hip-hop lyric
@@ -25,6 +26,64 @@ _PALETTE = [
 
 _ARROWS = {"CALLS": "→", "CONTAINS": "⊃", "IMPORTS": "⇒"}
 _BAR = "\u258e"  # ▎
+
+
+def _type_color(typ: str | None) -> str:
+    t = (typ or "").lower()
+    if "function" in t or "method" in t:
+        return "green"
+    if "class" in t or "interface" in t:
+        return "blue"
+    return "cyan"
+
+
+def format_symbol_line(r: dict, roots: dict | None = None, show_project: bool = True) -> str:
+    """Return a rich-markup formatted compact line for a symbol row.
+
+    Used by CLI for consistent clean output across search/symbols/callers etc.
+    """
+    from sampler.cli.main import _short_path, _format_line_range  # avoid circular at import time
+
+    if roots is None:
+        roots = {}
+    shortf = _short_path(r.get("project_name", ""), r.get("file_path", ""), roots)
+    name = r.get("qualified_name") or r.get("name") or ""
+    lines = _format_line_range(r.get("start_line"), r.get("end_line"))
+    typ = r.get("type")
+    col = _type_color(typ)
+    proj = f"[dim]{r.get('project_name', '')}[/]: " if show_project else ""
+    return (
+        f"{proj}[dim]{shortf}:{lines}[/] "
+        f"[{col}]{typ or 'symbol'}[/] [bold]{name}[/bold]"
+    )
+
+
+def render_symbols_table(console: Console, rows: list[dict], title: str = "Symbols") -> None:
+    """Clean table renderer for symbols/search results (used when --style table or for lists)."""
+    if not rows:
+        console.print("[dim]No results.[/dim]")
+        return
+    table = Table(title=title, show_header=True, header_style="bold cyan")
+    table.add_column("Location", style="dim")
+    table.add_column("Type", style="green")
+    table.add_column("Name", style="bold")
+    table.add_column("Signature", style="dim")
+
+    for r in rows:
+        short = r.get("file_path", "")
+        if "project_name" in r:
+            # try to shorten if possible (caller may pass roots)
+            pass
+        lines = f"{r.get('start_line', '-')}"
+        if r.get("end_line") and r.get("end_line") != r.get("start_line"):
+            lines += f"-{r['end_line']}"
+        loc = f"{r.get('project_name', '')}:{short}:{lines}"
+        typ = r.get("type", "")
+        name = r.get("qualified_name") or r.get("name", "")
+        sig = r.get("signature") or ""
+        col = _type_color(typ)
+        table.add_row(loc, f"[{col}]{typ}[/{col}]", name, sig)
+    console.print(table)
 
 
 class _UnionFind:

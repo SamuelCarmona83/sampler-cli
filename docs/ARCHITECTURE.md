@@ -35,8 +35,10 @@ Sampler is a local-first code intelligence CLI composed of 5 layers:
 - Build orchestration: `src/sampler/indexer/builder.py`
 - Storage adapter: `src/sampler/indexer/store.py`
 - Import heuristics for cross-project deps: `src/sampler/indexer/imports.py`
-- Embedding generation: `src/sampler/indexer/embedder.py`
-	- Hash fingerprint vectors (deterministic, local)
+- Embedding generation: `src/sampler/indexer/embedder.py` + `src/sampler/embeddings.py` (single file adapter layer)
+	- Pluggable EmbeddingProvider adapter (BGE default + hash now; others second stage)
+	- Hash fingerprint still fully supported as zero-dep fallback
+	- Config-driven (GlobalConfig.embeddings) + factory
 	- Rich progress callbacks for batch generation
 
 ### Parsers
@@ -72,9 +74,10 @@ Supports:
 - Semantic ranker: `src/sampler/query/semantic.py`
 
 Semantic strategy:
-1. TF-IDF candidate scoring (primary).
-2. Hash-fingerprint cosine similarity fallback.
-3. Hybrid ranking supported for mixed lexical/semantic behavior.
+1. Configured provider vectors (BGE/Ollama/etc) when `embed` has been run for that model (preferred when available).
+2. TF-IDF candidate scoring (on-the-fly, great lexical fallback, sklearn optional).
+3. Hash-fingerprint cosine similarity (always works).
+4. Hybrid ranking supported for mixed lexical/semantic behavior.
 
 ### MCP Layer
 

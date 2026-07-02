@@ -19,6 +19,13 @@
 - `sampler related <symbol> [--project <name>] [--style plain|bars]`
 - `sampler embed <project> [--batch-size <n>]`
 - `sampler stale-code <project> [--limit <n>]`
+- `sampler config show`
+- `sampler config embeddings [--provider <p>] [--model <m>] [--base-url <u>]`
+
+### Notes on `config`
+- `sampler config embeddings` lets you switch providers (bge-small default, ollama, hash for offline, openai, ...).
+- After changing provider run `sampler embed <project>` again.
+- API keys (OpenAI) come from environment variables.
 
 ### Notes on `overview`
 - Accepts relative paths (resolved from your current directory).
@@ -28,12 +35,15 @@
 - Supports projects configured with `--language auto` for mixed-language repositories.
 
 ### Notes on semantic search
-- `search --semantic` uses TF-IDF as primary ranking backend.
-- Falls back to local hash fingerprint similarity when needed.
+- `search --semantic` uses the configured embeddings provider (default bge-small) when precomputed vectors are available for the project.
+- Falls back intelligently: provider vectors → TF-IDF (sklearn) → hash fingerprint.
+- Install `pip install 'sampler-cli[embeddings]'` (or ollama-/openai- variant) for real models.
+- Run `sampler embed <project>` after index or after changing provider.
 
 ### Notes on `embed`
-- Generates deterministic local hash fingerprints for symbols.
+- Generates embeddings using the provider selected in config (bge-small by default via fastembed).
 - Displays progress using Rich progress bars.
+- Stored vectors are tagged with the provider model so switching providers is safe (old vectors ignored until re-embed).
 
 ### Notes on `stale-code`
 - Returns heuristic stale candidates: symbols called from tests but with no non-test callers.

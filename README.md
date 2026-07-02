@@ -62,18 +62,51 @@ Project management:
 - `sampler project deps <name>`
 - `sampler project remove <name>`
 
+Config:
+- `sampler config show`
+- `sampler config embeddings [--provider P] [--model M]`
+
 Semantic and analysis:
 - `sampler embed <project> [--batch-size <n>]`
 - `sampler stale-code <project> [--limit <n>]`
 
-## Semantic Search Backend
+Config:
+- `sampler config show`
+- `sampler config embeddings [--provider <p>] [--model <m>] [--base-url <u>]`
 
-`sampler search --semantic` uses:
+## Embeddings & Semantic Search
 
-1. TF-IDF scoring over structured per-symbol text (`Function/File/Arguments/Docstring`).
-2. Hash-fingerprint fallback backend (fully local, deterministic, no model provider dependency).
+`sampler search --semantic` (and hybrid ranking) supports pluggable providers via the adapter pattern:
 
-`sampler embed` precomputes hash fingerprints into SQLite and shows a progress bar.
+- **Default**: `bge-small` (BAAI/bge-small-en-v1.5 via fastembed — lightweight ONNX, ~384 dim, local).
+- Other built-ins: `hash` (always-on deterministic fallback), `ollama` (e.g. nomic-embed-text), `nomic`, `openai`, `fastembed`.
+- TF-IDF (sklearn, on-the-fly, no pre-embed) remains the fast lexical primary when no provider embeddings are precomputed for the active model.
+- Hash fingerprint is the final always-available fallback.
+
+Configuration (in `~/.sampler/config.yaml` or via `sampler config embeddings ...`):
+
+```yaml
+embeddings:
+  provider: "bge-small"
+  # provider: "ollama"
+  # model: "nomic-embed-text"
+  # base_url: "http://localhost:11434"
+```
+
+Install:
+
+```bash
+# For default BGE (recommended for most users)
+pip install 'sampler-cli[embeddings]'
+
+# Or for Ollama / OpenAI only
+pip install 'sampler-cli[ollama-embeddings]'
+pip install 'sampler-cli[openai-embeddings]'
+```
+
+`sampler embed <project>` precomputes vectors using the **current configured provider** (progress bar). Changing provider? Re-run `embed` after updating config (old vectors are ignored until re-embedded).
+
+Offline / air-gapped: `provider: hash` (or just don't install the embeddings extra — TF-IDF + hash still work if you have `[semantic]`).
 
 ## Language Support
 
