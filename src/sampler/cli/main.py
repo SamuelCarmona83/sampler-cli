@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import typer
@@ -6,7 +7,6 @@ from rich.console import Console
 from sampler import __version__
 from sampler.config import ConfigManager
 from sampler.db import Database
-from sampler.indexer.builder import IndexBuilder
 from sampler.query.engine import QueryEngine
 
 # Embeddings provider support (lazy, optional)
@@ -89,9 +89,17 @@ def _format_line_range(start_line: int | None, end_line: int | None) -> str:
 
 
 @app.command("version")
-def version() -> None:
+def version(
+    plain: bool = typer.Option(False, "--plain", help="Plain text output (version number only)"),
+) -> None:
     """Show installed sampler version."""
-    console.print(f"sampler {__version__}")
+    if plain or not sys.stdout.isatty():
+        console.print(f"sampler {__version__}")
+        return
+
+    from sampler.viz.headline import print_version_card
+
+    print_version_card(console, __version__)
 
 
 @app.command("init")
@@ -381,9 +389,25 @@ def symbols(
         console.print(line)
 
 
+def _build_embedder():
+    from sampler.indexer.embedder import Embedder
+
+    if get_embedding_provider is not None:
+        try:
+            return Embedder(provider=get_embedding_provider())
+        except Exception:
+            return Embedder()
+    return Embedder()
+
+
 @app.command("index")
-def index(project: str) -> None:
-    """Index selected project."""
+def index(
+    project: str,
+    plain: bool = typer.Option(False, "--plain", help="Compact output without Live visualization (for CI/scripts)"),
+    batch_size: int = typer.Option(32, "--batch-size", help="Batch size for embedding generation"),
+    force: bool = typer.Option(False, "--force", help="Re-index all files regardless of hash"),
+) -> None:
+    """Index project and generate embeddings (Live visualization when attached to a TTY)."""
     config = ConfigManager()
     project_cfg = config.get_project(project)
     if project_cfg is None:
@@ -394,17 +418,46 @@ def index(project: str) -> None:
             "Use 'sampler project list' to see registered projects."
         )
 
-    builder = IndexBuilder(db=_database())
-    stats = builder.index_project(
-        project_name=project_cfg.name,
-        project_path=project_cfg.path,
-        language=project_cfg.language,
-    )
-    console.print(
-        f"[green]✓[/green] Indexed [bold]{stats['project']}[/bold]: "
-        f"discovered={stats['discovered']} indexed={stats['indexed']} "
-        f"skipped={stats['skipped']} failed={stats['failed']}"
-    )
+    embedder = _build_embedder()
+    use_plain = plain or not sys.stdout.isatty()
+
+    try:
+        embedder.provider.embed("sampler health probe", for_query=True)
+    except RuntimeError as exc:
+        from rich.panel import Panel
+
+        console.print(Panel.fit(str(exc), title="Error", border_style="red"))
+        raise typer.Exit(code=1)
+
+    from sampler.viz.pipeline import run_index_pipeline
+
+    try:
+        stats = run_index_pipeline(
+            db=_database(),
+            project_cfg=project_cfg,
+            embedder=embedder,
+            force=force,
+            batch_size=batch_size,
+            plain=use_plain,
+            console=console,
+        )
+    except RuntimeError as exc:
+        from rich.panel import Panel
+
+        console.print(Panel.fit(str(exc), title="Error", border_style="red"))
+        raise typer.Exit(code=1)
+
+    if use_plain:
+        console.print(
+            f"[green]✓[/green] Indexed [bold]{stats['project']}[/bold]: "
+            f"discovered={stats['discovered']} indexed={stats['indexed']} "
+            f"skipped={stats['skipped']} failed={stats['failed']}"
+        )
+        prov_name = getattr(embedder.provider, "name", "hash")
+        console.print(
+            f"[green]✓[/green] Embedded [bold]{stats['embed_count']}[/bold] symbols "
+            f"using [bold]{prov_name}[/bold] ({stats['model']}) in [bold]{stats['elapsed']:.1f}s[/bold]"
+        )
 
 
 @app.command("embed")

@@ -4,6 +4,8 @@ import hashlib
 import re
 from pathlib import Path
 
+from typing import TYPE_CHECKING
+
 from sampler.db import Database
 from sampler.indexer.discover import discover_files, discover_files_multi
 from sampler.indexer.imports import extract_imports
@@ -11,6 +13,11 @@ from sampler.indexer.parsers.go import GoParser
 from sampler.indexer.parsers.python import PythonParser
 from sampler.indexer.parsers.typescript import TypeScriptParser
 from sampler.indexer.store import SymbolStore
+from sampler.viz.discover_emit import emit_discover
+from sampler.viz.events import FileParsing, LogLine, Stage, StageChanged
+
+if TYPE_CHECKING:
+    from sampler.viz.bus import EventBus, NullEventBus
 
 
 class IndexBuilder:
@@ -24,7 +31,14 @@ class IndexBuilder:
             "javascript": TypeScriptParser(),
         }
 
-    def index_project(self, project_name: str, project_path: str, language: str, force: bool = False) -> dict:
+    def index_project(
+        self,
+        project_name: str,
+        project_path: str,
+        language: str,
+        force: bool = False,
+        event_bus: EventBus | NullEventBus | None = None,
+    ) -> dict:
         is_auto = language.lower() == "auto"
         if not is_auto and language not in self.parsers:
             raise ValueError(f"Unsupported language: {language}")
@@ -38,10 +52,17 @@ class IndexBuilder:
         else:
             file_entries = [(f, language) for f in discover_files(project_path=project_abs_path, language=language)]
 
+        bus = event_bus
+        if bus is not None:
+            emit_discover(bus, project_abs_path, file_entries)
+            bus.emit(StageChanged(Stage.PARSING))
+
         indexed = 0
         skipped = 0
         failed = 0
         all_imports: set[str] = set()
+        total = len(file_entries)
+        parse_idx = 0
 
         for filepath, file_language in file_entries:
             parser = self.parsers.get(file_language)
@@ -63,7 +84,13 @@ class IndexBuilder:
                 skipped += 1
                 continue
 
+            if bus is not None:
+                bus.emit(FileParsing(path=filepath, index=parse_idx, total=total))
+                bus.emit(LogLine(message=f"+ parser {Path(filepath).name}"))
+
             symbols, relationships = parser.parse(content=content, filepath=filepath)
+            if bus is not None:
+                bus.emit(StageChanged(Stage.RELATIONSHIPS))
             self.store.save_symbols(
                 project_id=project_id,
                 filepath=filepath,
@@ -71,8 +98,10 @@ class IndexBuilder:
                 file_hash=file_hash,
                 symbols=symbols,
                 relationships=relationships,
+                event_bus=bus,
             )
             indexed += 1
+            parse_idx += 1
 
         self.db.update_project_file_count(project_id)
         self._resolve_project_dependencies(project_id, project_name, all_imports)

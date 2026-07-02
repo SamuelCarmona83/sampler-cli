@@ -119,7 +119,31 @@ class QueryEngine:
     def _is_test_path(path: str) -> bool:
         p = path.replace("\\", "/").lower()
         name = Path(path).name.lower()
-        return "/tests/" in p or name.startswith("test_") or name.endswith("_test.py")
+        if any(seg in p for seg in ("/tests/", "/test/", "/__tests__/", "/spec/")):
+            return True
+
+        if name.startswith("test_"):
+            return True
+
+        if name.endswith(("_test.py", "_test.go")):
+            return True
+
+        return name.endswith(
+            (
+                ".test.ts",
+                ".test.tsx",
+                ".test.js",
+                ".test.jsx",
+                ".test.mjs",
+                ".test.cjs",
+                ".spec.ts",
+                ".spec.tsx",
+                ".spec.js",
+                ".spec.jsx",
+                ".spec.mjs",
+                ".spec.cjs",
+            )
+        )
 
     def stale_code_candidates(self, project_name: str) -> list[dict]:
         """Detect code likely stale: function/method called by tests but not by non-test code."""
@@ -156,6 +180,9 @@ class QueryEngine:
 
         stale: list[dict] = []
         for entry in by_target.values():
+            # Test-file symbols (helpers, fixtures) are expected to be test-only callers.
+            if self._is_test_path(entry["file_path"]):
+                continue
             if entry["test_callers"] and not entry["non_test_callers"]:
                 stale.append(
                     {

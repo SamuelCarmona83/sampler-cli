@@ -611,6 +611,57 @@ class Database:
         with self.connect() as conn:
             return conn.execute(sql, (project_name,)).fetchall()
 
+    def get_project_index_stats(self, project_name: str) -> dict[str, int]:
+        """Aggregate counts for index pipeline / status displays."""
+        sql = """
+                SELECT
+                    (SELECT COUNT(*) FROM files f
+                     JOIN projects p ON f.project_id = p.id WHERE p.name = ?) AS files,
+                    (SELECT COUNT(*) FROM symbols s
+                     JOIN files f ON s.file_id = f.id
+                     JOIN projects p ON f.project_id = p.id WHERE p.name = ?) AS symbols,
+                    (SELECT COUNT(*) FROM relationships r
+                     JOIN symbols src ON r.source_id = src.id
+                     JOIN files f ON src.file_id = f.id
+                     JOIN projects p ON f.project_id = p.id WHERE p.name = ?) AS relationships,
+                    (SELECT COUNT(*) FROM embeddings e
+                     JOIN symbols s ON e.symbol_id = s.id
+                     JOIN files f ON s.file_id = f.id
+                     JOIN projects p ON f.project_id = p.id WHERE p.name = ?) AS embeddings
+                """
+        with self.connect() as conn:
+            row = conn.execute(sql, (project_name, project_name, project_name, project_name)).fetchone()
+        if row is None:
+            return {"files": 0, "symbols": 0, "relationships": 0, "embeddings": 0}
+        return {
+            "files": int(row["files"]),
+            "symbols": int(row["symbols"]),
+            "relationships": int(row["relationships"]),
+            "embeddings": int(row["embeddings"]),
+        }
+
+    def get_top_symbols_by_degree(self, project_name: str, limit: int = 80) -> list[sqlite3.Row]:
+        """Top symbols by in+out relationship degree for graph preview."""
+        sql = """
+                SELECT
+                    s.id,
+                    s.name,
+                    s.qualified_name,
+                    s.type,
+                    (
+                        SELECT COUNT(*) FROM relationships r
+                        WHERE r.source_id = s.id OR r.target_id = s.id
+                    ) AS degree
+                FROM symbols s
+                JOIN files f ON s.file_id = f.id
+                JOIN projects p ON f.project_id = p.id
+                WHERE p.name = ?
+                ORDER BY degree DESC, s.qualified_name, s.name
+                LIMIT ?
+                """
+        with self.connect() as conn:
+            return conn.execute(sql, (project_name, limit)).fetchall()
+
     def get_project_call_edges(self, project_name: str) -> list[sqlite3.Row]:
         """Return CALLS edges within project, with caller/target symbol + file context.
 

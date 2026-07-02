@@ -1,4 +1,12 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from sampler.db import Database
+from sampler.viz.events import RelationshipCreated, SymbolExtracted
+
+if TYPE_CHECKING:
+    from sampler.viz.bus import EventBus, NullEventBus
 
 
 class SymbolStore:
@@ -87,6 +95,7 @@ class SymbolStore:
         file_hash: str,
         symbols: list[dict],
         relationships: list[dict],
+        event_bus: EventBus | NullEventBus | None = None,
     ) -> None:
         file_id = self.db.upsert_file(project_id=project_id, path=filepath, language=language, file_hash=file_hash)
         self.db.clear_file_data(file_id)
@@ -103,6 +112,14 @@ class SymbolStore:
                 local_by_name.setdefault(name, []).append(inserted_id)
                 if name not in symbol_id_map:
                     symbol_id_map[name] = inserted_id
+            if event_bus is not None:
+                event_bus.emit(
+                    SymbolExtracted(
+                        name=qualified or name or "symbol",
+                        symbol_type=symbol.get("type") or "symbol",
+                        file_path=filepath,
+                    )
+                )
 
         for relation in relationships:
             source_key = relation.get("source")
@@ -131,3 +148,11 @@ class SymbolStore:
                 continue
 
             self.db.insert_relationship(source_id=source_id, target_id=target_id, relation=relation)
+            if event_bus is not None:
+                event_bus.emit(
+                    RelationshipCreated(
+                        source=source_key,
+                        target=target_key,
+                        relation_type=relation.get("type") or "CALLS",
+                    )
+                )

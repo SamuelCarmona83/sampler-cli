@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from sampler.db import Database
+from sampler.viz.events import EmbeddingGenerated
+
+if TYPE_CHECKING:
+    from sampler.viz.bus import EventBus, NullEventBus
 
 # --- Public constants kept for backward compat ---
 DEFAULT_BATCH_SIZE = 32
@@ -200,6 +204,7 @@ class Embedder:
         project_name: str,
         batch_size: int = DEFAULT_BATCH_SIZE,
         on_progress: Callable[[int, int], None] | None = None,
+        event_bus: EventBus | NullEventBus | None = None,
     ) -> int:
         """Generate and store embeddings for every symbol in a project using the active provider.
 
@@ -220,6 +225,7 @@ class Embedder:
             # Use provider batch (supports for_query=False for document storage)
             vectors = provider.embed_batch(texts, for_query=False)
 
+            done_before = start
             for row, vec in zip(batch, vectors):
                 try:
                     import numpy as np
@@ -234,6 +240,12 @@ class Embedder:
                     dim=dim,
                     vector=vec_bytes,
                 )
+                done_before += 1
+                if event_bus is not None:
+                    name = row["qualified_name"] or row["name"]
+                    event_bus.emit(
+                        EmbeddingGenerated(name=name, index=done_before, total=total)
+                    )
 
             if on_progress is not None:
                 on_progress(min(start + batch_size, total), total)
