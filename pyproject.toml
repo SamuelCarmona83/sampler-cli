@@ -69,6 +69,6 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [project.urls]
-Homepage = "https://github.com/sicr0/sampler-cli"
-Repository = "https://github.com/sicr0/sampler-cli"
-Issues = "https://github.com/sicr0/sampler-cli/issues"
+Homepage = "https://github.com/SamuelCarmona83/sampler-cli"
+Repository = "https://github.com/SamuelCarmona83/sampler-cli"
+Issues = "https://github.com/SamuelCarmona83/sampler-cli/issues"
