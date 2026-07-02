@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/sampler.png" alt="Sampler logo" width="220">
+  <img src="https://cdn.discordapp.com/attachments/1511455620409069749/1522284239213826140/image.png?ex=6a47e92d&is=6a4697ad&hm=aa457b4bce13e4024b1030f985bed252298c72f3a16acd9d6f916d30d21a849f&" alt="Sampler logo" width="220">
 </p>
 
 <h1 align="center">Sampler</h1>
