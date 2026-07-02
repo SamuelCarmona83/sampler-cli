@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.2] - 2026-07-02
+
+### Added
+- Stale-code path classification expanded to recognize multi-language test conventions:
+  - directories: `tests/`, `test/`, `__tests__/`, `spec/`
+  - file patterns: `test_*.py`, `*_test.py`, `*_test.go`, `*.test.*`, `*.spec.*`
+- New stale-code tests for Go and TypeScript test-file helper scenarios.
+
+### Changed
+- `stale-code` now excludes symbols defined inside test files, reducing noisy false positives for test helpers/fixtures.
+- Version command docs/help aligned with current behavior (`sampler version --plain` => `sampler <version>` plain output).
+
+### Notes
+- Test suite status after change: 68 passed.
+
 ## [0.4.1] - 2026-07-01
 
 ### Added

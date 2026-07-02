@@ -2,7 +2,7 @@
 
 ## Estado
 
-Version actual: 0.4.1
+Version actual: 0.4.2
 
 ## Hecho
 
@@ -52,6 +52,9 @@ Version actual: 0.4.1
 - Salidas de comandos mucho más limpias: markup Rich (paths dim, nombres bold, tipos coloreados), tablas para project list, mensajes con ✓ y provider details.
 - Ranking hibrido semantic/texto/grafo/modificacion.
 - Deteccion de stale code (test-only callers).
+- stale-code hardening multi-lenguaje:
+  - excluye simbolos definidos en archivos de test
+  - reconoce patrones de test para Python/Go/TypeScript/JavaScript (`tests/`, `test/`, `__tests__/`, `spec/`, `*_test.go`, `*.test.*`, `*.spec.*`)
 - Comando project deps para dependencias cross-project heuristicas por imports.
 - CI basica en GitHub Actions (pytest).
 - Suite de tests en verde.
@@ -60,7 +63,7 @@ Version actual: 0.4.1
 
 ## Pendiente P0 (alta prioridad)
 
-- Reducir falsos positivos de stale-code con reglas adicionales por framework y entrypoints.
+- Reducir falsos positivos residuales de stale-code con reglas por framework/runner (pytest markers, unittest dynamic loaders, jest/vitest runtime indirection) y entrypoints.
 - Endurecer validaciones de release:
   - limpiar warnings de setuptools sobre metadata de license/classifiers
   - agregar check de build en CI para wheel+sdist

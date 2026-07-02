@@ -1,10 +1,14 @@
 # Release Process (sampler-cli)
 
-## Current status (as of 2026-07-01)
-- Version: 0.4.1
+## Current status (as of 2026-07-02)
+- Version: 0.4.2
 - Artifacts ready in `dist/`
 - Full clean install + demo flow verified (including relationship commands, stale-code, and semantic TF-IDF/hash backend)
 - GitHub publish workflow ready (`.github/workflows/publish.yml`)
+- New in this release:
+   - `sampler version --plain` documented and stable plain output (`sampler <version>`)
+   - stale-code now avoids reporting symbols defined in test files
+   - stale-code test-path detection expanded for Python, Go, TypeScript, and JavaScript conventions
 
 ## For immediate demo (even before making repo public)
 
@@ -36,7 +40,7 @@
 
 1. Go to https://pypi.org/manage/account/publishing/ and configure **Trusted Publishing** for this repository (environment `pypi`).
 2. (Optional but recommended) Do the same on TestPyPI.
-3. Create a new GitHub Release with tag `v0.4.1` (or whatever the current version is).
+3. Create a new GitHub Release with tag `v0.4.2` (or whatever the current version is).
 4. The workflow `.github/workflows/publish.yml` will automatically build and publish.
 
 ## Checklist before tagging a release

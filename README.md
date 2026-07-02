@@ -2,7 +2,7 @@
 
 Token-efficient CLI for indexing and searching code symbols across multiple projects.
 
-Current version: 0.4.1
+Current version: 0.4.2
 
 Designed for humans and agents: compact default output, short paths, and low-noise symbol views.
 
@@ -42,7 +42,7 @@ sampler overview src/main.py
 ## Command Overview
 
 Core:
-- `sampler version`
+- `sampler version [--plain]`
 - `sampler init`
 - `sampler index <project>`
 - `sampler search <query> [--project <name>] [--type <t>] [--limit <n>] [--semantic] [--style plain|bars]`
@@ -118,6 +118,13 @@ Offline / air-gapped: `provider: hash` (or just don't install the embeddings ext
 
 - function is called from test files
 - function has zero non-test callers in project call graph
+- symbol is defined in production code (symbols defined in test files are excluded)
+
+Test file detection supports common multi-language patterns:
+
+- Python: `tests/`, `test_*.py`, `*_test.py`
+- Go: `*_test.go`
+- TypeScript/JavaScript: `__tests__/`, `test/`, `spec/`, `*.test.*`, `*.spec.*`
 
 This is heuristic signal, not guaranteed dead-code proof.
 
