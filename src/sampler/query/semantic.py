@@ -92,7 +92,7 @@ class SemanticEngine:
         scored.sort(key=lambda pair: pair[0], reverse=True)
         return scored[:pool]
 
-    def _hash_scored_candidates(self, query: str, rows: list[dict], project_name: str | None, pool: int):
+    def _hash_scored_candidates(self, query: str, rows: list[dict], pool: int):
         """Last-resort backend: deterministic hash fingerprints (no ML, always available)."""
         try:
             import numpy as np
@@ -101,17 +101,8 @@ class SemanticEngine:
                 "Semantic search requires numpy. Install with: pip install 'sampler-cli[semantic]'"
             ) from exc
 
-        embeddings = self.db.get_embeddings_for_project(project_name) if project_name else []
+        # ponytail: always derive on-the-fly for hash (cheap+deterministic); precomp only for real providers (avoids all cross-dim crashes when provider switched)
         query_vec = self.embedder.hash_fingerprint_vector(query)
-
-        if embeddings:
-            scored = []
-            for row in embeddings:
-                vec = np.frombuffer(row["vector"], dtype="float32")
-                sim = float(np.dot(query_vec, vec))
-                scored.append((sim, row))
-            scored.sort(key=lambda pair: pair[0], reverse=True)
-            return scored[:pool]
 
         if not rows:
             return []
@@ -139,7 +130,7 @@ class SemanticEngine:
             return tfidf
 
         # 3. Hash fingerprint (always works, deterministic local fallback)
-        return self._hash_scored_candidates(query, rows, project_name, pool)
+        return self._hash_scored_candidates(query, rows, pool)
 
     def semantic_search(self, query: str, project_name: str | None = None, limit: int = 10) -> list[dict]:
         """Pure cosine-similarity search over stored symbol embeddings, no graph/text signals."""
