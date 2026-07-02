@@ -2,7 +2,7 @@
 
 Token-efficient CLI for indexing and searching code symbols across multiple projects.
 
-Current version: 0.3.0
+Current version: 0.4.1
 
 Designed for humans and agents: compact default output, short paths, and low-noise symbol views.
 
@@ -51,9 +51,10 @@ Core:
 - `sampler overview <filepath> [--style plain|bars]`
 
 Relationships:
-- `sampler callers <symbol> [--project <name>]`
-- `sampler usages <symbol> [--project <name>]`
-- `sampler related <symbol> [--project <name>] [--style plain|bars]`
+- `sampler callers <symbol> [--project <name>] [--file <path-or-suffix>]`
+- `sampler usages <symbol> [--project <name>] [--file <path-or-suffix>]`
+- `sampler related <symbol> [--project <name>] [--file <path-or-suffix>] [--style plain|bars]`
+- Selector alternativo: `<path>:<symbol>` (ej. `app/utils/helpers.py:format_kda`)
 
 Project management:
 - `sampler project add <name> <path> --language <python|go|typescript|javascript|auto>`
@@ -69,10 +70,6 @@ Config:
 Semantic and analysis:
 - `sampler embed <project> [--batch-size <n>]`
 - `sampler stale-code <project> [--limit <n>]`
-
-Config:
-- `sampler config show`
-- `sampler config embeddings [--provider <p>] [--model <m>] [--base-url <u>]`
 
 ## Embeddings & Semantic Search
 

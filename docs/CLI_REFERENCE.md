@@ -14,9 +14,9 @@
 - `sampler search-all <query> [--type <t>] [--limit <n>]`
 - `sampler symbols <project> [--type <t>] [--limit <n>]`
 - `sampler overview <filepath> [--style plain|bars]`
-- `sampler callers <symbol> [--project <name>]`
-- `sampler usages <symbol> [--project <name>]`
-- `sampler related <symbol> [--project <name>] [--style plain|bars]`
+- `sampler callers <symbol> [--project <name>] [--file <path-or-suffix>]`
+- `sampler usages <symbol> [--project <name>] [--file <path-or-suffix>]`
+- `sampler related <symbol> [--project <name>] [--file <path-or-suffix>] [--style plain|bars]`
 - `sampler embed <project> [--batch-size <n>]`
 - `sampler stale-code <project> [--limit <n>]`
 - `sampler config show`
@@ -26,6 +26,11 @@
 - `sampler config embeddings` lets you switch providers (bge-small default, ollama, hash for offline, openai, ...).
 - After changing provider run `sampler embed <project>` again.
 - API keys (OpenAI) come from environment variables.
+
+### Notes on relationship commands
+- If a symbol name is ambiguous, disambiguate with `--file`.
+- `--file` accepts absolute paths and suffix paths.
+- You can also pass selector syntax `<path>:<symbol>` as a single SYMBOL argument.
 
 ### Notes on `overview`
 - Accepts relative paths (resolved from your current directory).

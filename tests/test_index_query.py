@@ -92,3 +92,36 @@ def test_cross_project_dependency_detected_via_imports(tmp_path: Path) -> None:
         d["source_project"] == "app" and d["target_project"] == "shared_utils" and d["type"] == "IMPORTS"
         for d in deps
     )
+
+
+def test_cross_file_dotted_call_resolves_to_unique_leaf_symbol(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / "helpers.py").write_text(
+        """
+def format_kda(k, d, a):
+    return f"{k}/{d}/{a}"
+""",
+        encoding="utf-8",
+    )
+    (project_dir / "service.py").write_text(
+        """
+import helpers
+
+def run(k, d, a):
+    return helpers.format_kda(k, d, a)
+""",
+        encoding="utf-8",
+    )
+
+    db = Database(tmp_path / "graph.db")
+    db.init_schema()
+    builder = IndexBuilder(db=db)
+    builder.index_project(project_name="demo", project_path=str(project_dir), language="python")
+
+    engine = QueryEngine(db=db)
+    matches, callers = engine.callers("format_kda", project_name="demo")
+
+    assert len(matches) == 1
+    caller_names = {c["qualified_name"] or c["name"] for c in callers}
+    assert "run" in caller_names

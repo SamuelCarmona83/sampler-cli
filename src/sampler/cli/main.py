@@ -562,7 +562,13 @@ def _format_symbol_line(r: dict, roots: dict[str, Path]) -> str:
     )
 
 
-def _resolve_or_report(matches: list[dict], symbol: str, roots: dict[str, Path]) -> bool:
+def _resolve_or_report(
+    matches: list[dict],
+    symbol: str,
+    roots: dict[str, Path],
+    project: str | None = None,
+    file_path: str | None = None,
+) -> bool:
     """Print an error/disambiguation message when matches != 1. Returns True if safe to proceed."""
     if len(matches) == 0:
         console.print(f"No symbol found matching '{symbol}'.")
@@ -572,21 +578,44 @@ def _resolve_or_report(matches: list[dict], symbol: str, roots: dict[str, Path])
         console.print(f"Ambiguous symbol '{symbol}', found {len(matches)} matches:")
         for m in matches:
             console.print(f"  {_format_symbol_line(m, roots)}")
-        console.print("Tip: narrow down with --project <project>.")
+        if file_path:
+            console.print("Tip: --file is set but still ambiguous. Use a more specific file path.")
+        elif project:
+            console.print("Tip: narrow down with --file <path/suffix>.")
+        else:
+            console.print("Tip: narrow down with --project <project> and/or --file <path/suffix>.")
         return False
     return True
+
+
+def _parse_symbol_selector(symbol: str, file_path: str | None) -> tuple[str, str | None]:
+    """Accept optional selector format 'path/to/file.py:symbol_name'.
+
+    Explicit --file always wins. If --file is absent and selector syntax is
+    present, split on the last ':' so path segments can still contain ':'.
+    """
+    if file_path:
+        return symbol, file_path
+    if ":" not in symbol:
+        return symbol, None
+    left, right = symbol.rsplit(":", 1)
+    if left.strip() and right.strip():
+        return right.strip(), left.strip()
+    return symbol, file_path
 
 
 @app.command("callers")
 def callers(
     symbol: str,
     project: str | None = typer.Option(None, "--project", "-p"),
+    file: str | None = typer.Option(None, "--file", "-f", help="Disambiguate by file path (absolute or suffix)"),
 ) -> None:
     """Show symbols that CALL the given symbol."""
     engine = QueryEngine(db=_database())
-    matches, rows = engine.callers(symbol, project)
+    symbol, file = _parse_symbol_selector(symbol, file)
+    matches, rows = engine.callers(symbol, project, file)
     roots = _get_project_roots()
-    if not _resolve_or_report(matches, symbol, roots):
+    if not _resolve_or_report(matches, symbol, roots, project=project, file_path=file):
         return
     if not rows:
         console.print(f"No callers found for {symbol}.")
@@ -599,12 +628,14 @@ def callers(
 def usages(
     symbol: str,
     project: str | None = typer.Option(None, "--project", "-p"),
+    file: str | None = typer.Option(None, "--file", "-f", help="Disambiguate by file path (absolute or suffix)"),
 ) -> None:
     """Show symbols that reference the given symbol (any relationship type, broader than callers)."""
     engine = QueryEngine(db=_database())
-    matches, rows = engine.usages(symbol, project)
+    symbol, file = _parse_symbol_selector(symbol, file)
+    matches, rows = engine.usages(symbol, project, file)
     roots = _get_project_roots()
-    if not _resolve_or_report(matches, symbol, roots):
+    if not _resolve_or_report(matches, symbol, roots, project=project, file_path=file):
         return
     if not rows:
         console.print(f"No usages found for {symbol}.")
@@ -617,13 +648,15 @@ def usages(
 def related(
     symbol: str,
     project: str | None = typer.Option(None, "--project", "-p"),
+    file: str | None = typer.Option(None, "--file", "-f", help="Disambiguate by file path (absolute or suffix)"),
     style: str = typer.Option("plain", "--style", help="'plain' (default) or 'bars' (colored relationship view)"),
 ) -> None:
     """Show symbols related via CONTAINS (parent class / child methods)."""
     engine = QueryEngine(db=_database())
-    matches, rows = engine.related(symbol, project)
+    symbol, file = _parse_symbol_selector(symbol, file)
+    matches, rows = engine.related(symbol, project, file)
     roots = _get_project_roots()
-    if not _resolve_or_report(matches, symbol, roots):
+    if not _resolve_or_report(matches, symbol, roots, project=project, file_path=file):
         return
     if not rows:
         console.print(f"No related symbols found for {symbol}.")

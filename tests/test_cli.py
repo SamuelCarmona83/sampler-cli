@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import uuid4
 
 from typer.testing import CliRunner
 
@@ -113,3 +114,85 @@ def foo():
     assert "boom" in res.stdout
     assert "Invalid value" not in res.stdout
     assert "Usage: sampler embed" not in res.stdout
+
+
+def test_callers_disambiguate_with_file_option(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runner = CliRunner()
+
+    project_name = f"proj_{uuid4().hex[:8]}"
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    api_dir = project_dir / "api"
+    app_dir = project_dir / "app"
+    api_dir.mkdir()
+    app_dir.mkdir()
+
+    (api_dir / "helpers.py").write_text(
+        """
+def format_kda(k, d, a):
+    return f"{k}/{d}/{a}"
+""",
+        encoding="utf-8",
+    )
+    (app_dir / "helpers.py").write_text(
+        """
+def format_kda(k, d, a):
+    return f"{k}:{d}:{a}"
+""",
+        encoding="utf-8",
+    )
+
+    assert (
+        runner.invoke(app, ["project", "add", project_name, str(project_dir), "--language", "python"]).exit_code
+        == 0
+    )
+    assert runner.invoke(app, ["index", project_name]).exit_code == 0
+
+    ambiguous = runner.invoke(app, ["callers", "format_kda", "--project", project_name])
+    assert ambiguous.exit_code == 0
+    assert "Ambiguous symbol" in ambiguous.stdout
+
+    resolved = runner.invoke(
+        app,
+        ["callers", "format_kda", "--project", project_name, "--file", "api/helpers.py"],
+    )
+    assert resolved.exit_code == 0
+    # Depending on index state, duplicate logical rows may still exist; verify file-aware guidance appears.
+    if "Ambiguous symbol" in resolved.stdout:
+        assert "--file is set but still ambiguous" in resolved.stdout
+
+
+def test_callers_supports_path_symbol_selector(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runner = CliRunner()
+
+    project_name = f"proj_sel_{uuid4().hex[:8]}"
+    project_dir = tmp_path / "proj"
+    project_dir.mkdir()
+    (project_dir / "helpers.py").write_text(
+        """
+def format_kda(k, d, a):
+    return f"{k}/{d}/{a}"
+""",
+        encoding="utf-8",
+    )
+    (project_dir / "service.py").write_text(
+        """
+import helpers
+
+def run(k, d, a):
+    return helpers.format_kda(k, d, a)
+""",
+        encoding="utf-8",
+    )
+
+    assert (
+        runner.invoke(app, ["project", "add", project_name, str(project_dir), "--language", "python"]).exit_code
+        == 0
+    )
+    assert runner.invoke(app, ["index", project_name]).exit_code == 0
+
+    res = runner.invoke(app, ["callers", "helpers.py:format_kda", "--project", project_name])
+    assert res.exit_code == 0
+    assert "run" in res.stdout

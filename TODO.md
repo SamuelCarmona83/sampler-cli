@@ -2,7 +2,7 @@
 
 ## Estado
 
-Version actual: 0.4.0
+Version actual: 0.4.1
 
 ## Hecho
 
@@ -29,6 +29,8 @@ Version actual: 0.4.0
 - Parser TypeScript/JavaScript real (tree-sitter-typescript).
 - Soporte monorepo/multilenguaje con --language auto.
 - Relaciones en grafo: CONTAINS y CALLS.
+- Resolucion cross-file de relaciones mejorada con heuristicas seguras (exact match, leaf unico, preferencia por metodo de clase) + skip de ambiguedad.
+- Desambiguacion en consultas de relaciones por archivo (`--file`) y selector `<path>:<symbol>`.
 - Query engine:
   - search
   - search-all
@@ -58,7 +60,6 @@ Version actual: 0.4.0
 
 ## Pendiente P0 (alta prioridad)
 
-- Mejorar resolucion de relaciones cross-file (scope/import alias y casos borde) para aumentar precision de callers/usages.
 - Reducir falsos positivos de stale-code con reglas adicionales por framework y entrypoints.
 - Endurecer validaciones de release:
   - limpiar warnings de setuptools sobre metadata de license/classifiers
@@ -71,6 +72,7 @@ Version actual: 0.4.0
   - exponer aviso en CLI cuando el indice este posiblemente stale
 - Mejorar dependencias cross-project:
   - pasar de heuristica regex a resolucion mas semantica por parser/lenguaje
+- Resolver casos borde restantes de alias/import-scope en relaciones cross-file (precision fina en proyectos grandes).
 - Mejoras visuales del modo bars:
   - soporte de flechas ASCII para relaciones
   - mejores leyendas por tipo de relacion
@@ -120,6 +122,7 @@ Version actual: 0.4.0
   - sampler callers retry_request --project myproj
   - sampler usages retry_request --project myproj
   - sampler related retry_request --project myproj --style bars
+  - sampler callers app/utils/helpers.py:format_kda --project myproj
 - Detectar stale code:
   - sampler stale-code myproj --limit 50
 - Ejecutar tests:

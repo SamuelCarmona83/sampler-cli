@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.1] - 2026-07-01
+
+### Added
+- Relationship commands (`callers`, `usages`, `related`) now support disambiguation by file:
+  - `--file <path-or-suffix>`
+  - selector syntax `<path>:<symbol>` (example: `app/utils/helpers.py:format_kda`).
+
+### Changed
+- Cross-file relation resolution in index/store improved with safe heuristics:
+  - exact local/project match first
+  - unique leaf-name fallback for dotted calls (`module.fn` -> `fn`)
+  - class-aware method preference (`Class.method` for `self.method` style calls)
+  - ambiguity-safe behavior (skip unresolved relations instead of linking wrong symbol)
+- Ambiguity hints in relationship commands now guide to `--file` when `--project` is already provided.
+
+### Notes
+- This release improves precision of `callers`/`usages` on real multi-file projects.
+- Test suite status after change: 46 passed.
+
 ## [0.4.0] - 2026-07-01
 
 ### Added

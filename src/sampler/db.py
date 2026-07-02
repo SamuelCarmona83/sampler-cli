@@ -277,17 +277,58 @@ class Database:
             ).fetchone()
             return None if row is None else int(row["id"])
 
-    def find_symbols(self, symbol_name: str, project_name: str | None = None) -> list[sqlite3.Row]:
+    def find_symbol_candidates_in_project(self, project_id: int, symbol_name: str) -> list[sqlite3.Row]:
+        """Return candidate symbols for relation resolution within a project.
+
+        Matches both exact and suffix qualified names so a call target like
+        `module.fn` can still resolve to symbol `fn` or `Class.fn` when safe.
+        """
+        leaf = symbol_name.split(".")[-1]
+        with self.connect() as conn:
+            return conn.execute(
+                """
+                SELECT
+                    s.id,
+                    s.type,
+                    s.name,
+                    s.qualified_name,
+                    s.start_line,
+                    s.end_line,
+                    f.path AS file_path
+                FROM symbols s
+                JOIN files f ON s.file_id = f.id
+                WHERE f.project_id = ?
+                  AND (
+                        s.qualified_name = ?
+                     OR s.name = ?
+                     OR s.qualified_name LIKE ?
+                     OR s.qualified_name LIKE ?
+                  )
+                ORDER BY f.path, s.start_line, s.id
+                """,
+                (project_id, symbol_name, symbol_name, f"%.{leaf}", f"%{leaf}"),
+            ).fetchall()
+
+    def find_symbols(
+        self,
+        symbol_name: str,
+        project_name: str | None = None,
+        file_path: str | None = None,
+    ) -> list[sqlite3.Row]:
         """Find all symbols matching a name or qualified_name, for CLI disambiguation."""
         where = "WHERE (s.qualified_name = ? OR s.name = ?)"
         params: list = [symbol_name, symbol_name]
         if project_name:
             where += " AND p.name = ?"
             params.append(project_name)
+        if file_path:
+            # Allow exact path or suffix path (convenient for relative disambiguation).
+            where += " AND (f.path = ? OR f.path LIKE ?)"
+            params.extend([file_path, f"%{file_path}"])
 
         sql = f"""
                 SELECT
-                    s.id,
+                    MIN(s.id) AS id,
                     s.type,
                     s.name,
                     s.qualified_name,
@@ -299,6 +340,14 @@ class Database:
                 JOIN files f ON s.file_id = f.id
                 JOIN projects p ON f.project_id = p.id
                 {where}
+                GROUP BY
+                    s.type,
+                    s.name,
+                    s.qualified_name,
+                    s.start_line,
+                    s.end_line,
+                    f.path,
+                    p.name
                 ORDER BY p.name, f.path, s.start_line
                 """
         with self.connect() as conn:

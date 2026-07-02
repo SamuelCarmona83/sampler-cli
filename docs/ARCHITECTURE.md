@@ -34,6 +34,7 @@ Sampler is a local-first code intelligence CLI composed of 5 layers:
 	- Supports monorepo mode via `--language auto`.
 - Build orchestration: `src/sampler/indexer/builder.py`
 - Storage adapter: `src/sampler/indexer/store.py`
+	- Cross-file relation resolver uses safe heuristics (exact match -> unique leaf fallback -> class-method preference) and skips ambiguous links.
 - Import heuristics for cross-project deps: `src/sampler/indexer/imports.py`
 - Embedding generation: `src/sampler/indexer/embedder.py` + `src/sampler/embeddings.py` (single file adapter layer)
 	- Pluggable EmbeddingProvider adapter (BGE default + hash now; others second stage)

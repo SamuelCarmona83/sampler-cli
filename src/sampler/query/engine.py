@@ -26,30 +26,90 @@ class QueryEngine:
         ids = [r["id"] for r in rows if r.get("id") is not None]
         return [dict(row) for row in self.db.get_relationships_among(ids)]
 
-    def resolve_symbol(self, name: str, project_name: str | None = None) -> list[dict]:
+    def resolve_symbol(
+        self,
+        name: str,
+        project_name: str | None = None,
+        file_path: str | None = None,
+    ) -> list[dict]:
         """Find symbols matching a name/qualified_name. May return 0, 1, or many (ambiguous) matches."""
-        rows = self.db.find_symbols(symbol_name=name, project_name=project_name)
-        return [dict(row) for row in rows]
+        rows = self.db.find_symbols(symbol_name=name, project_name=project_name, file_path=file_path)
+        # Guard against duplicate logical symbols (e.g. stale duplicate rows after re-index cycles).
+        uniq: dict[tuple, dict] = {}
+        for row in rows:
+            item = dict(row)
+            key = (
+                item.get("project_name"),
+                item.get("file_path"),
+                item.get("qualified_name") or item.get("name"),
+                item.get("type"),
+                item.get("start_line"),
+                item.get("end_line"),
+            )
+            uniq.setdefault(key, item)
+        return list(uniq.values())
 
-    def callers(self, name: str, project_name: str | None = None) -> tuple[list[dict], list[dict]]:
+    @staticmethod
+    def _collapse_duplicate_match_rows(matches: list[dict]) -> list[dict]:
+        """Collapse repeated logical symbol rows that differ only by id/storage duplication."""
+        if len(matches) <= 1:
+            return matches
+        first = matches[0]
+        sig0 = (
+            first.get("project_name"),
+            first.get("file_path"),
+            first.get("qualified_name") or first.get("name"),
+            first.get("type"),
+            first.get("start_line"),
+            first.get("end_line"),
+        )
+        for m in matches[1:]:
+            sig = (
+                m.get("project_name"),
+                m.get("file_path"),
+                m.get("qualified_name") or m.get("name"),
+                m.get("type"),
+                m.get("start_line"),
+                m.get("end_line"),
+            )
+            if sig != sig0:
+                return matches
+        return [first]
+
+    def callers(
+        self,
+        name: str,
+        project_name: str | None = None,
+        file_path: str | None = None,
+    ) -> tuple[list[dict], list[dict]]:
         """Returns (candidate matches, callers). Callers is only populated when exactly one match is found."""
-        matches = self.resolve_symbol(name, project_name)
+        matches = self._collapse_duplicate_match_rows(self.resolve_symbol(name, project_name, file_path))
         if len(matches) != 1:
             return matches, []
         rows = self.db.get_callers(matches[0]["id"])
         return matches, [dict(row) for row in rows]
 
-    def usages(self, name: str, project_name: str | None = None) -> tuple[list[dict], list[dict]]:
+    def usages(
+        self,
+        name: str,
+        project_name: str | None = None,
+        file_path: str | None = None,
+    ) -> tuple[list[dict], list[dict]]:
         """Returns (candidate matches, usages). Usages is only populated when exactly one match is found."""
-        matches = self.resolve_symbol(name, project_name)
+        matches = self._collapse_duplicate_match_rows(self.resolve_symbol(name, project_name, file_path))
         if len(matches) != 1:
             return matches, []
         rows = self.db.get_usages(matches[0]["id"])
         return matches, [dict(row) for row in rows]
 
-    def related(self, name: str, project_name: str | None = None) -> tuple[list[dict], list[dict]]:
+    def related(
+        self,
+        name: str,
+        project_name: str | None = None,
+        file_path: str | None = None,
+    ) -> tuple[list[dict], list[dict]]:
         """Returns (candidate matches, related). Related is only populated when exactly one match is found."""
-        matches = self.resolve_symbol(name, project_name)
+        matches = self._collapse_duplicate_match_rows(self.resolve_symbol(name, project_name, file_path))
         if len(matches) != 1:
             return matches, []
         rows = self.db.get_related(matches[0]["id"])
