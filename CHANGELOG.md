@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.4.2] - 2026-07-02
+## [0.4.3] - 2026-07-02
 
 ### Added
 - Stale-code path classification expanded to recognize multi-language test conventions:

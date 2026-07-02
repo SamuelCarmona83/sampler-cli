@@ -1,6 +1,6 @@
 [project]
 name = "sampler-cli"
-version = "0.4.2"
+version = "0.4.3"
 description = "Token-efficient CLI for indexing and searching code symbols (Python-first, designed for minimal LLM/agent context size)"
 readme = "README.md"
 license = { text = "MIT" }

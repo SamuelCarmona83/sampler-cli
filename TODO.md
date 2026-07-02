@@ -2,7 +2,7 @@
 
 ## Estado
 
-Version actual: 0.4.2
+Version actual: 0.4.3
 
 ## Hecho
 
