@@ -2,7 +2,7 @@
 
 Token-efficient CLI for indexing and searching code symbols across multiple projects.
 
-Current version: 0.4.3
+Current version: 0.4.4
 
 Designed for humans and agents: compact default output, short paths, and low-noise symbol views.
 
