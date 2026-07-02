@@ -2,7 +2,7 @@
 
 ## Commands
 
-- `sampler version`
+- `sampler version [--plain]`
 - `sampler init`
 - `sampler project add <name> <path> --language <python|go|typescript|javascript|auto>`
 - `sampler project update <name> [--path <path>] [--language <language>]`
@@ -52,3 +52,13 @@
 
 ### Notes on `stale-code`
 - Returns heuristic stale candidates: symbols called from tests but with no non-test callers.
+- Excludes symbols defined inside test files (test helpers/fixtures are not reported as stale).
+- Test-file detection supports common multi-language patterns:
+	- directories: `tests/`, `test/`, `__tests__/`, `spec/`
+	- Python: `test_*.py`, `*_test.py`
+	- Go: `*_test.go`
+	- TypeScript/JavaScript: `*.test.*`, `*.spec.*`
+
+### Notes on `version`
+- `sampler version --plain` prints plain text (`sampler <version>`) for scripts/CI.
+- `sampler version` in TTY can render richer output; non-TTY defaults to plain format.

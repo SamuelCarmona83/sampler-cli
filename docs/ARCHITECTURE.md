@@ -73,6 +73,12 @@ Supports:
 
 - API facade: `src/sampler/query/engine.py`
 - Semantic ranker: `src/sampler/query/semantic.py`
+- Stale-code heuristic (`QueryEngine.stale_code_candidates`):
+	- flags production symbols called only from tests
+	- excludes symbols defined in test files
+	- test-path classification is multi-language aware (Python/Go/TypeScript/JavaScript):
+		- directories: `tests/`, `test/`, `__tests__/`, `spec/`
+		- suffix/patterns: `test_*.py`, `*_test.py`, `*_test.go`, `*.test.*`, `*.spec.*`
 
 Semantic strategy:
 1. Configured provider vectors (BGE/Ollama/etc) when `embed` has been run for that model (preferred when available).
