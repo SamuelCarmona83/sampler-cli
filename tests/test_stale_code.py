@@ -114,6 +114,8 @@ def test_is_test_path_supports_multilanguage_patterns() -> None:
     assert QueryEngine._is_test_path("web/Button.spec.ts")
     assert QueryEngine._is_test_path("src/__tests__/helpers.js")
     assert QueryEngine._is_test_path("src/spec/api.test.mjs")
+    assert QueryEngine._is_test_path("src/components/Button.test.vue")
+    assert QueryEngine._is_test_path("views/Foo.spec.vue")
     assert not QueryEngine._is_test_path("src/app/main.go")
     assert not QueryEngine._is_test_path("src/components/Button.tsx")
 

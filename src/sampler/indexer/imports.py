@@ -27,7 +27,7 @@ def extract_imports(content: str, language: str) -> list[str]:
         return _extract_python_imports(content)
     if language == "go":
         return _extract_go_imports(content)
-    if language in ("typescript", "javascript"):
+    if language in ("typescript", "javascript", "vue"):
         return _extract_ts_imports(content)
     return []
 

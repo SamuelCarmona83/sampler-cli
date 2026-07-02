@@ -128,6 +128,7 @@ class QueryEngine:
         if name.endswith(("_test.py", "_test.go")):
             return True
 
+        # Note: .vue test files (e.g. Foo.test.vue) are also supported for Vue projects
         return name.endswith(
             (
                 ".test.ts",
@@ -136,12 +137,14 @@ class QueryEngine:
                 ".test.jsx",
                 ".test.mjs",
                 ".test.cjs",
+                ".test.vue",
                 ".spec.ts",
                 ".spec.tsx",
                 ".spec.js",
                 ".spec.jsx",
                 ".spec.mjs",
                 ".spec.cjs",
+                ".spec.vue",
             )
         )
 

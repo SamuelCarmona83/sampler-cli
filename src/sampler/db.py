@@ -640,6 +640,24 @@ class Database:
             "embeddings": int(row["embeddings"]),
         }
 
+    def get_project_language_breakdown(self, project_name: str) -> dict[str, int]:
+        """For auto projects (or any), return {language: file_count} from the files table.
+
+        Used to display per-language % in `project list` for language=auto projects.
+        Very cheap (single grouped query); data is already stored during index.
+        """
+        sql = """
+            SELECT COALESCE(f.language, 'unknown') AS lang, COUNT(*) AS cnt
+            FROM files f
+            JOIN projects p ON f.project_id = p.id
+            WHERE p.name = ?
+            GROUP BY lang
+            ORDER BY cnt DESC
+        """
+        with self.connect() as conn:
+            rows = conn.execute(sql, (project_name,)).fetchall()
+        return {row["lang"]: int(row["cnt"]) for row in rows}
+
     def get_top_symbols_by_degree(self, project_name: str, limit: int = 80) -> list[sqlite3.Row]:
         """Top symbols by in+out relationship degree for graph preview."""
         sql = """

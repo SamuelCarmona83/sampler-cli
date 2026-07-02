@@ -8,6 +8,7 @@ LANGUAGE_EXTENSIONS: dict[str, set[str]] = {
     "go": {".go"},
     "typescript": {".ts", ".tsx", ".js", ".jsx"},
     "javascript": {".js", ".jsx", ".mjs", ".cjs"},
+    "vue": {".vue"},
 }
 
 DEFAULT_IGNORE_PARTS = {
@@ -59,10 +60,11 @@ def _build_extension_language_map() -> dict[str, str]:
     Iteration order determines the winner for extensions shared by multiple
     languages (.js/.jsx are listed under both "typescript" and "javascript";
     both route to the same real parser implementation, so the choice is
-    cosmetic but kept stable).
+    cosmetic but kept stable). .vue maps to dedicated "vue" (which delegates
+    to the TS/JS parser after <script> extraction).
     """
     ext_to_lang: dict[str, str] = {}
-    for lang in ("python", "go", "typescript", "javascript"):
+    for lang in ("python", "go", "vue", "typescript", "javascript"):
         for ext in LANGUAGE_EXTENSIONS[lang]:
             ext_to_lang.setdefault(ext, lang)
     return ext_to_lang
@@ -74,6 +76,7 @@ def discover_files_multi(
     """Discover files across ALL supported languages, returning (path, detected_language) pairs.
 
     Used for monorepo/multi-language projects indexed with language="auto".
+    Vue SFCs are detected as language "vue".
     """
     root = Path(project_path)
     if not root.exists() or not root.is_dir():

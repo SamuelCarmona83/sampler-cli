@@ -4,7 +4,7 @@
 
 - `sampler version [--plain]`
 - `sampler init`
-- `sampler project add <name> <path> --language <python|go|typescript|javascript|auto>`
+- `sampler project add <name> <path> --language <python|go|typescript|javascript|vue|auto>`
 - `sampler project update <name> [--path <path>] [--language <language>]`
 - `sampler project list`
 - `sampler project deps <name>`
@@ -37,7 +37,8 @@
 - If the file has no indexed symbols: prints a clear "No symbols found" message with usage tips.
 
 ### Notes on `index`
-- Supports projects configured with `--language auto` for mixed-language repositories.
+- Supports projects configured with `--language auto` for mixed-language repositories (including .vue SFCs and .js/.mjs).
+- For `language=auto` projects, `project list` shows a breakdown of detected languages and their % share of files in the project.
 
 ### Notes on semantic search
 - `search --semantic` uses the configured embeddings provider (default bge-small) when precomputed vectors are available for the project.
@@ -57,7 +58,7 @@
 	- directories: `tests/`, `test/`, `__tests__/`, `spec/`
 	- Python: `test_*.py`, `*_test.py`
 	- Go: `*_test.go`
-	- TypeScript/JavaScript: `*.test.*`, `*.spec.*`
+	- TypeScript/JavaScript/Vue: `*.test.*`, `*.spec.*` (including `*.test.vue`, `*.spec.vue`)
 
 ### Notes on `version`
 - `sampler version --plain` prints plain text (`sampler <version>`) for scripts/CI.

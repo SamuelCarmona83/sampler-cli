@@ -183,6 +183,8 @@ def project_list() -> None:
     table.add_column("Language", style="green")
     table.add_column("Enabled", justify="center")
 
+    db = _database()
+
     for p in projects:
         try:
             pp = Path(p.path).resolve()
@@ -195,7 +197,21 @@ def project_list() -> None:
         except Exception:
             disp = p.path
         enabled = "[green]yes[/green]" if p.enabled else "[dim]no[/dim]"
-        table.add_row(p.name, disp, p.language, enabled)
+
+        lang_display = p.language
+        if (p.language or "").lower() == "auto":
+            breakdown = db.get_project_language_breakdown(p.name)
+            total = sum(breakdown.values()) or 1
+            parts = []
+            for lang, cnt in sorted(breakdown.items(), key=lambda kv: -kv[1])[:4]:  # top 4 for brevity
+                pct = int(round(cnt * 100 / total))
+                parts.append(f"{lang} {pct}%")
+            if parts:
+                lang_display = f"auto ({', '.join(parts)})"
+            else:
+                lang_display = "auto (no files yet)"
+
+        table.add_row(p.name, disp, lang_display, enabled)
 
     console.print(table)
 
@@ -205,7 +221,7 @@ def project_add(
     name: str,
     path: str,
     language: str = typer.Option(
-        "python", "--language", help="python, go, typescript, javascript, or 'auto' for monorepos"
+        "python", "--language", help="python, go, typescript, javascript, vue, or 'auto' for monorepos"
     ),
 ) -> None:
     """Register project in global config."""
@@ -232,7 +248,7 @@ def project_remove(name: str) -> None:
 def project_update(
     name: str,
     path: str | None = typer.Option(None, "--path", help="New absolute path for the project"),
-    language: str | None = typer.Option(None, "--language", help="New language (or 'auto' for monorepos)"),
+    language: str | None = typer.Option(None, "--language", help="New language (python|go|typescript|javascript|vue|auto)"),
 ) -> None:
     """Update a registered project's path/language in place (no remove/add needed)."""
     if path is None and language is None:

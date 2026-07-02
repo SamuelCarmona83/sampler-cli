@@ -22,6 +22,8 @@ def test_discover_files_multi_detects_language_per_file(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("print('ok')\n", encoding="utf-8")
     (tmp_path / "b.go").write_text("package main\n", encoding="utf-8")
     (tmp_path / "c.ts").write_text("export const x = 1;\n", encoding="utf-8")
+    (tmp_path / "d.js").write_text("export const y = 2;\n", encoding="utf-8")
+    (tmp_path / "e.vue").write_text("<script>export const z = 3;</script>\n", encoding="utf-8")
     (tmp_path / "readme.md").write_text("not code\n", encoding="utf-8")
 
     ignored = tmp_path / "node_modules"
@@ -34,5 +36,7 @@ def test_discover_files_multi_detects_language_per_file(tmp_path: Path) -> None:
     assert by_suffix[".py"] == "python"
     assert by_suffix[".go"] == "go"
     assert by_suffix[".ts"] == "typescript"
+    assert by_suffix[".js"] in ("typescript", "javascript")  # shared, order stable
+    assert by_suffix[".vue"] == "vue"
     assert ".md" not in by_suffix
     assert all("skip.js" not in p for p, _ in entries)

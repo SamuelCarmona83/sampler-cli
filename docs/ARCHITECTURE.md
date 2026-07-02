@@ -31,7 +31,7 @@ Sampler is a local-first code intelligence CLI composed of 5 layers:
 ### Indexer
 
 - Discovery: `src/sampler/indexer/discover.py`
-	- Supports monorepo mode via `--language auto`.
+	- Supports monorepo mode via `--language auto` (per-file lang detection; for such projects `project list` shows detected languages + % of codebase by file count).
 - Build orchestration: `src/sampler/indexer/builder.py`
 - Storage adapter: `src/sampler/indexer/store.py`
 	- Cross-file relation resolver uses safe heuristics (exact match -> unique leaf fallback -> class-method preference) and skips ambiguous links.
@@ -47,6 +47,7 @@ Sampler is a local-first code intelligence CLI composed of 5 layers:
 - Python: `src/sampler/indexer/parsers/python.py` (stdlib AST)
 - Go: `src/sampler/indexer/parsers/go.py` (tree-sitter-go)
 - TypeScript/JavaScript: `src/sampler/indexer/parsers/typescript.py` (tree-sitter-typescript)
+- Vue: `src/sampler/indexer/parsers/vue.py` (extracts <script> section + delegates to TypeScript/JavaScript parser for symbols)
 
 Parsers emit:
 - symbols (function, method, class, interface, variable, etc.)
@@ -76,7 +77,7 @@ Supports:
 - Stale-code heuristic (`QueryEngine.stale_code_candidates`):
 	- flags production symbols called only from tests
 	- excludes symbols defined in test files
-	- test-path classification is multi-language aware (Python/Go/TypeScript/JavaScript):
+	- test-path classification is multi-language aware (Python/Go/TypeScript/JavaScript/Vue):
 		- directories: `tests/`, `test/`, `__tests__/`, `spec/`
 		- suffix/patterns: `test_*.py`, `*_test.py`, `*_test.go`, `*.test.*`, `*.spec.*`
 

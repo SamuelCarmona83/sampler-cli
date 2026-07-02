@@ -12,6 +12,7 @@ from sampler.indexer.imports import extract_imports
 from sampler.indexer.parsers.go import GoParser
 from sampler.indexer.parsers.python import PythonParser
 from sampler.indexer.parsers.typescript import TypeScriptParser
+from sampler.indexer.parsers.vue import VueParser
 from sampler.indexer.store import SymbolStore
 from sampler.viz.discover_emit import emit_discover
 from sampler.viz.events import FileParsing, LogLine, Stage, StageChanged
@@ -29,6 +30,7 @@ class IndexBuilder:
             "go": GoParser(),
             "typescript": TypeScriptParser(),
             "javascript": TypeScriptParser(),
+            "vue": VueParser(),
         }
 
     def index_project(

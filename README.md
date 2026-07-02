@@ -57,7 +57,7 @@ Relationships:
 - Selector alternativo: `<path>:<symbol>` (ej. `app/utils/helpers.py:format_kda`)
 
 Project management:
-- `sampler project add <name> <path> --language <python|go|typescript|javascript|auto>`
+- `sampler project add <name> <path> --language <python|go|typescript|javascript|vue|auto>`
 - `sampler project update <name> [--path <abs-path>] [--language <lang>]`
 - `sampler project list`
 - `sampler project deps <name>`
@@ -110,7 +110,8 @@ Offline / air-gapped: `provider: hash` (or just don't install the embeddings ext
 - Python parser: stdlib AST (stable)
 - Go parser: tree-sitter-go (real extraction)
 - TypeScript/JavaScript parser: tree-sitter-typescript (real extraction)
-- `--language auto`: per-file language detection for monorepos/multi-language projects
+- Vue parser: extracts `<script>`/`<script setup>` + delegates to TS/JS parser (supports lang=ts/js etc.)
+- `--language auto`: per-file language detection for monorepos/multi-language projects (for auto projects, `project list` shows detected languages + file % breakdown)
 
 ## Stale Code Detection
 
@@ -124,7 +125,7 @@ Test file detection supports common multi-language patterns:
 
 - Python: `tests/`, `test_*.py`, `*_test.py`
 - Go: `*_test.go`
-- TypeScript/JavaScript: `__tests__/`, `test/`, `spec/`, `*.test.*`, `*.spec.*`
+- TypeScript/JavaScript/Vue: `__tests__/`, `test/`, `spec/`, `*.test.*`, `*.spec.*` (incl. `*.test.vue`)
 
 This is heuristic signal, not guaranteed dead-code proof.
 
