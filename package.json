@@ -1,0 +1,32 @@
+{
+  "name": "sampler-cli",
+  "version": "1.0.0",
+  "description": "<p align=\"center\">   <img src=\"https://cdn.discordapp.com/attachments/1511455620409069749/1522284239213826140/image.png?ex=6a47e92d&is=6a4697ad&hm=aa457b4bce13e4024b1030f985bed252298c72f3a16acd9d6f916d30d21a849f&\" alt=\"Sampler logo\" width=\"220\"> </p>",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SamuelCarmona83/sampler-cli.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/SamuelCarmona83/sampler-cli/issues"
+  },
+  "homepage": "https://github.com/SamuelCarmona83/sampler-cli#readme",
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.80.3",
+    "@earendil-works/pi-coding-agent": "^0.80.3"
+  }
+}

@@ -8,15 +8,54 @@
  * or load it temporarily with: pi -e ./sampler-pi-extension.ts
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
+import * as pathUtil from "path";
 
 // ============================================
 // Shared Helpers for Sampler Setup & Query
 // ============================================
 
 const ensuredProjects = new Set<string>();
+const CONTEXT_CHAR_LIMIT = 3400;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const contextCache = new Map<string, { title: string; text: string; timestamp: number }>();
+
+function formatForAgentContext(content: string): string {
+  const trimmed = (content || "").trim();
+  if (!trimmed) return "(sin resultados)";
+  if (trimmed.length <= CONTEXT_CHAR_LIMIT) return trimmed;
+  const snippet = trimmed.slice(0, CONTEXT_CHAR_LIMIT).trim();
+  return `${snippet}\n\n(... salida truncada para ahorrar tokens; dime si necesitas más detalles.)`;
+}
+
+function cacheKeyForCommand(command: string): string {
+  return command.trim();
+}
+
+function buildToolCacheKey(
+  action: string,
+  project?: string,
+  query?: string,
+  semantic?: boolean,
+): string {
+  return `tool:${action}:${project ?? "global"}:${query ?? ""}:${semantic ? "semantic" : "plain"}`;
+}
+
+function getCachedContext(key: string) {
+  const entry = contextCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    contextCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function storeCachedContext(key: string, title: string, text: string) {
+  contextCache.set(key, { title, text, timestamp: Date.now() });
+}
 
 async function getCwdRoot(pi: ExtensionAPI): Promise<string> {
   const result = await pi.exec("bash", [
@@ -98,16 +137,25 @@ async function ensureProjectReady(
 }
 
 /**
- * Injects a block of text into the agent's context window as a system message.
+ * Injects a block of text into the agent's context window as a custom message.
  * This makes sampler output visible for follow-up reasoning and manual references.
+ *
+ * Note: `ctx.agent.submitMessage` does not exist in Pi's ExtensionContext API.
+ * The real API is `pi.sendMessage()` on the ExtensionAPI object.
  */
-async function injectAgentContext(ctx: any, title: string, content: string) {
-  if (ctx.agent?.submitMessage) {
-    await ctx.agent.submitMessage({
-      role: "system",
-      content: `### Sampler Result: ${title}\n\n${content}`,
-    });
-  }
+async function injectAgentContext(
+  pi: ExtensionAPI,
+  ctx: any,
+  title: string,
+  content: string,
+) {
+  const formatted = formatForAgentContext(content);
+  pi.sendMessage({
+    customType: "sampler",
+    content: `### Sampler Result: ${title}\n\n${formatted}`,
+    display: true,
+  });
+  return formatted;
 }
 
 /**
@@ -134,32 +182,41 @@ async function runAndReport(
   projectName?: string,
   successType: "success" | "info" = "success",
 ) {
+  const cacheKey = cacheKeyForCommand(cmd);
+  const cached = getCachedContext(cacheKey);
+  if (cached) {
+    ctx.ui.notify(
+      `▶ ${cmd}\n✓ Reutilizando resultado en caché`,
+      successType,
+    );
+    await injectAgentContext(pi, ctx, cached.title, cached.text);
+    return { code: 0, stdout: cached.text, stderr: "" };
+  }
+
   const result = await pi.exec("bash", ["-c", cmd]);
   const isSuccess = result.code === 0;
   const rawOutput = (result.stdout || result.stderr || "").trim();
 
-  // Clean output if project matches
   const output = isSuccess && projectName
     ? cleanSamplerOutput(rawOutput, projectName)
     : rawOutput;
 
-  // 1. If it's a success, send the cleaned output to the agent context
-  //    so the user can refer to it and the agent can reason about it.
   if (isSuccess && output) {
-    await injectAgentContext(
-      ctx,
-      `${title}\nUser manually executed \`${cmd}\``,
-      output,
-    );
+    const finalTitle = `${title}\nUser manually executed \`${cmd}\``;
+    const injected = await injectAgentContext(pi, ctx, finalTitle, output);
+    storeCachedContext(cacheKey, finalTitle, injected);
   }
 
-  // 2. Keep UI notification minimal: just the command and a status hint
   ctx.ui.notify(
     `▶ ${cmd}\n${isSuccess ? "✓ Results added to context" : output || "(no output)"}`,
     isSuccess ? successType : "error",
   );
 
-  return { ...result, stdout: output, stderr: isSuccess ? "" : result.stderr };
+  return {
+    ...result,
+    stdout: output,
+    stderr: isSuccess ? "" : result.stderr,
+  };
 }
 
 /**
@@ -201,7 +258,7 @@ export default function (pi: ExtensionAPI) {
 
       const useSemantic =
         argsArray.includes("--semantic") ||
-        (await ctx.ui.confirm("Use semantic search?", false));
+        (await ctx.ui.confirm("Use semantic search?", "Semantic search uses embeddings and may require additional dependencies."));
 
       const explicitProjectIdx = argsArray.indexOf("--project");
       const explicitProject =
@@ -360,12 +417,14 @@ export default function (pi: ExtensionAPI) {
 
       // side effect: ensure project for current dir is indexed so overview works better
       const resolved = await resolveProject(pi, ctx);
+      const baseDir = resolved?.path || process.cwd();
+      const absoluteFile = pathUtil.isAbsolute(file) ? file : pathUtil.resolve(baseDir, file);
 
       await runAndReport(
         pi,
         ctx,
-        `Overview of ${file}`,
-        `sampler overview "${file}" --style bars`,
+        `Overview of ${absoluteFile}`,
+        `sampler overview "${absoluteFile}" --style bars`,
         resolved?.name,
       );
     },
@@ -407,6 +466,21 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // Alias command to ensure /sampler:project also adds to context
+  pi.registerCommand("sampler:project", {
+    description: "Alias for listing registered projects",
+    handler: async (args, ctx) => {
+      await runAndReport(
+        pi,
+        ctx,
+        "Registered Projects",
+        "sampler project list",
+        undefined,
+        "info",
+      );
+    },
+  });
+
   pi.registerCommand("sampler:remove", {
     description: "Remove a registered project",
     handler: async (args, ctx) => {
@@ -425,7 +499,7 @@ export default function (pi: ExtensionAPI) {
       ]);
       if (result.code === 0) {
         ensuredProjects.delete(name);
-        ctx.ui.notify(`Project '${name}' removed.`, "success");
+        ctx.ui.notify(`Project '${name}' removed.`, "info");
       } else {
         ctx.ui.notify(result.stderr || result.stdout, "error");
       }
@@ -440,6 +514,29 @@ export default function (pi: ExtensionAPI) {
   // injectAgentContext so the user can refer to
   // them manually.
   // ============================================
+
+  const nextStepTemplates: Record<string, string> = {
+    search:
+      'Siguiente paso: usa sampler_explore_codebase con action=callers o action=related para explorar los resultados clave de "{query}".',
+    callers:
+      'Siguiente paso: explora action=related o action=usages sobre "{query}" para entender conexiones y usos.',
+    usages:
+      'Siguiente paso: examina action=overview sobre un sitio de uso de "{query}" o action=related para seguir la red de símbolos.',
+    related:
+      'Siguiente paso: llama a action=callers o action=search para profundizar en "{query}".',
+    overview:
+      'Siguiente paso: ejecuta action=callers o action=related sobre un símbolo destacado en "{query}".',
+    stale:
+      'Siguiente paso: verifica con action=callers o action=overview si los candidatos siguen en uso en "{project}".',
+  };
+
+  function renderNextStep(action: string, query?: string, project?: string): string {
+    const template = nextStepTemplates[action];
+    if (!template) return "";
+    return template
+      .replace(/\{query\}/g, query || "esta consulta")
+      .replace(/\{project\}/g, project || "este proyecto");
+  }
 
   pi.registerTool({
     name: "sampler_explore_codebase",
@@ -498,26 +595,50 @@ export default function (pi: ExtensionAPI) {
         force = false,
       } = params;
 
-      if (action === "list_projects") {
+      const actionSafe = action as string;
+
+      if (actionSafe === "list_projects") {
+        const cacheKey = buildToolCacheKey("list_projects");
+        const cached = getCachedContext(cacheKey);
+        if (cached) {
+          ctx.ui.notify(
+            "▶ sampler project list\n✓ Reutilizando lista de proyectos registrada",
+            "info",
+          );
+          await injectAgentContext(pi, ctx, cached.title, cached.text);
+          return {
+            content: [{ type: "text", text: cached.text }],
+            details: { action: actionSafe, success: true },
+          };
+        }
+
         const cmd = "sampler project list";
         const result = await pi.exec("bash", ["-c", cmd], {
           signal,
         });
         const text =
           result.stdout || result.stderr || "(no projects registered)";
+        // Normalize display: strip potential "(branch)" suffixes from each line for readability
+        const cleanText = text
+          .split("\n")
+          .map((line) => line.replace(/\s*\([^)]*\)\s*$/, ""))
+          .join("\n");
 
-        await injectAgentContext(ctx, "Registered Projects", text);
+        const formatted = await injectAgentContext(pi, ctx, "Registered Projects", cleanText);
+        if (result.code === 0) {
+          storeCachedContext(cacheKey, "Registered Projects", formatted);
+        }
         ctx.ui.notify(
-          `▶ ${cmd}\n${result.code === 0 ? "✓ Results added to context" : text}`,
+          `▶ ${cmd}\n${result.code === 0 ? "✓ Results added to context" : cleanText}`,
           result.code === 0 ? "info" : "error",
         );
         return {
-          content: [{ type: "text", text }],
-          details: { action, success: result.code === 0 },
+          content: [{ type: "text", text: result.code === 0 ? formatted : cleanText }],
+          details: { action: actionSafe, success: result.code === 0 },
         };
       }
 
-      if (!query && action !== "list_projects") {
+      if (!query && actionSafe !== "list_projects") {
         throw new Error(`action=${action} requires a 'query' parameter`);
       }
 
@@ -528,6 +649,27 @@ export default function (pi: ExtensionAPI) {
 
       if (force) {
         await ensureProjectReady(pi, ctx, resolved.name, resolved.path, true);
+      }
+
+      const cacheKey = buildToolCacheKey(
+        actionSafe,
+        resolved.name,
+        query,
+        semantic,
+      );
+      if (!force) {
+        const cached = getCachedContext(cacheKey);
+        if (cached) {
+          ctx.ui.notify(
+            `▶ sampler_explore_codebase (${actionSafe})\n✓ Reutilizando resultado previo`,
+            "info",
+          );
+          await injectAgentContext(pi, ctx, cached.title, cached.text);
+          return {
+            content: [{ type: "text", text: cached.text }],
+            details: { action: actionSafe, project: resolved.name, success: true },
+          };
+        }
       }
 
       const runCmd = async (c: string) => {
@@ -545,7 +687,7 @@ export default function (pi: ExtensionAPI) {
       };
 
       let cmd = "";
-      switch (action) {
+      switch (actionSafe) {
         case "search":
           cmd = semantic
             ? `sampler search "${query}" --semantic --project "${resolved.name}" --limit 12 --style bars`
@@ -572,7 +714,7 @@ export default function (pi: ExtensionAPI) {
 
       // Fallback for semantic search missing deps
       let note = "";
-      if (action === "search" && semantic && result.code !== 0) {
+      if (actionSafe === "search" && semantic && result.code !== 0) {
         const stderr = result.stderr || result.stdout;
         if (
           stderr.includes("numpy") ||
@@ -596,41 +738,32 @@ export default function (pi: ExtensionAPI) {
 
       if (result.code !== 0) {
         throw new Error(
-          result.stderr || result.stdout || `sampler ${action} failed`,
+          result.stderr || result.stdout || `sampler ${actionSafe} failed`,
         );
       }
 
-      const nextSteps: Record<string, string> = {
-        search:
-          "Next: call sampler_explore_codebase again with action=callers or action=related on an interesting result to explore the call graph.",
-        callers:
-          "Next: call sampler_explore_codebase with action=related to see connections, or action=usages to find where it's used.",
-        usages:
-          "Next: call sampler_explore_codebase with action=overview on a usage site, or action=related for graph exploration.",
-        related:
-          "Next: call sampler_explore_codebase with action=callers or action=search to dig deeper into the graph.",
-        overview:
-          "Next: call sampler_explore_codebase with action=callers or action=related on a symbol from this file.",
-        stale:
-          "Next: call sampler_explore_codebase with action=callers on a candidate to confirm it truly has no callers.",
-      };
-
-      const title = `Sampler ${action}${query ? `: ${query}` : ""}`;
+      const title = `Sampler ${actionSafe}${query ? `: ${query}` : ""}`;
       const output = cleanSamplerOutput(
         result.stdout || result.stderr || "",
         resolved.name,
       );
-      const text = note + output + "\n\n" + (nextSteps[action] ?? "");
+      const nextStep = renderNextStep(actionSafe, query, resolved.name);
+      const textParts: string[] = [];
+      if (note) textParts.push(note.trim());
+      if (output) textParts.push(output.trim());
+      if (nextStep) textParts.push(nextStep);
+      const text = textParts.join("\n\n");
 
-      await injectAgentContext(ctx, title, text);
+      const formattedText = await injectAgentContext(pi, ctx, title, text);
+      storeCachedContext(cacheKey, title, formattedText);
       ctx.ui.notify(
         `▶ ${cmd}\n✓ Results added to context`,
-        "success",
+        "info",
       );
 
       return {
-        content: [{ type: "text", text }],
-        details: { action, project: resolved.name, success: true },
+        content: [{ type: "text", text: formattedText }],
+        details: { action: actionSafe, project: resolved.name, success: true },
       };
     },
   });
@@ -657,7 +790,7 @@ export default function (pi: ExtensionAPI) {
         customType: "sampler",
         content:
           "You have access to the sampler_explore_codebase tool for codebase exploration.",
-        display: true,
+        display: false,
       },
     };
   });
