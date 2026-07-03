@@ -678,6 +678,7 @@ def callers(
     symbol: str,
     project: str | None = typer.Option(None, "--project", "-p"),
     file: str | None = typer.Option(None, "--file", "-f", help="Disambiguate by file path (absolute or suffix)"),
+    style: str = typer.Option("plain", "--style", help="'plain' (default) or 'bars' (colored relationship view)"),
 ) -> None:
     """Show symbols that CALL the given symbol."""
     engine = QueryEngine(db=_database())
@@ -689,6 +690,14 @@ def callers(
     if not rows:
         console.print(f"No callers found for {symbol}.")
         return
+
+    if style == "bars":
+        from sampler.cli.render import render_bars
+
+        edges = engine.relationships_among(rows)
+        render_bars(console, rows, edges, lambda r: _format_symbol_line(r, roots))
+        return
+
     for r in rows:
         console.print(_format_symbol_line(r, roots))
 
@@ -698,6 +707,7 @@ def usages(
     symbol: str,
     project: str | None = typer.Option(None, "--project", "-p"),
     file: str | None = typer.Option(None, "--file", "-f", help="Disambiguate by file path (absolute or suffix)"),
+    style: str = typer.Option("plain", "--style", help="'plain' (default) or 'bars' (colored relationship view)"),
 ) -> None:
     """Show symbols that reference the given symbol (any relationship type, broader than callers)."""
     engine = QueryEngine(db=_database())
@@ -709,9 +719,16 @@ def usages(
     if not rows:
         console.print(f"No usages found for {symbol}.")
         return
+
+    if style == "bars":
+        from sampler.cli.render import render_bars
+
+        edges = engine.relationships_among(rows)
+        render_bars(console, rows, edges, lambda r: f"{_format_symbol_line(r, roots)}  [{r.get('relation_type', 'reference')}]")
+        return
+
     for r in rows:
         console.print(f"{_format_symbol_line(r, roots)}  [magenta][{r['relation_type']}][/magenta]")
-
 
 @app.command("related")
 def related(
