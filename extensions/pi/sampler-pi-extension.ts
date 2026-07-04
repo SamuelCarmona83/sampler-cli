@@ -20,14 +20,25 @@ import * as pathUtil from "path";
 const ensuredProjects = new Set<string>();
 const CONTEXT_CHAR_LIMIT = 3400;
 const CACHE_TTL_MS = 5 * 60 * 1000;
+
+const CONTEXT_CHAR_LIMIT_BY_ACTION: Record<string, number> = {
+  search: 3400,
+  overview: 3400,
+  callers: 2400,
+  usages: 2400,
+  related: 2400,
+  stale: 1800,
+  list_projects: 1200,
+};
+
 const contextCache = new Map<string, { title: string; text: string; timestamp: number }>();
 
-function formatForAgentContext(content: string): string {
+function formatForAgentContext(content: string, action: string = "search"): string {
+  const limit = CONTEXT_CHAR_LIMIT_BY_ACTION[action] ?? CONTEXT_CHAR_LIMIT;
   const trimmed = (content || "").trim();
   if (!trimmed) return "(sin resultados)";
-  if (trimmed.length <= CONTEXT_CHAR_LIMIT) return trimmed;
-  const snippet = trimmed.slice(0, CONTEXT_CHAR_LIMIT).trim();
-  return `${snippet}\n\n(... salida truncada para ahorrar tokens; dime si necesitas más detalles.)`;
+  if (trimmed.length <= limit) return trimmed;
+  return `${trimmed.slice(0, limit).trim()}\n\n(... salida truncada; dime si necesitas más detalles.)`;
 }
 
 function cacheKeyForCommand(command: string): string {
@@ -516,19 +527,19 @@ export default function (pi: ExtensionAPI) {
   // ============================================
 
   const nextStepTemplates: Record<string, string> = {
-    search:
-      'Siguiente paso: usa sampler_explore_codebase con action=callers o action=related para explorar los resultados clave de "{query}".',
-    callers:
-      'Siguiente paso: explora action=related o action=usages sobre "{query}" para entender conexiones y usos.',
-    usages:
-      'Siguiente paso: examina action=overview sobre un sitio de uso de "{query}" o action=related para seguir la red de símbolos.',
-    related:
-      'Siguiente paso: llama a action=callers o action=search para profundizar en "{query}".',
-    overview:
-      'Siguiente paso: ejecuta action=callers o action=related sobre un símbolo destacado en "{query}".',
-    stale:
-      'Siguiente paso: verifica con action=callers o action=overview si los candidatos siguen en uso en "{project}".',
+    search: 'Sugerido: action=callers o related sobre "{query}".',
+    callers: 'Sugerido: action=related o usages sobre "{query}".',
+    usages: 'Sugerido: action=overview o related sobre "{query}".',
+    related: 'Sugerido: action=callers o search sobre "{query}".',
+    overview: 'Sugerido: action=callers/related sobre símbolo destacado.',
+    stale: 'Sugerido: action=callers/overview para verificar en "{project}".',
   };
+
+  function formatAndCache(cacheKey: string, title: string, raw: string): string {
+    const formatted = formatForAgentContext(raw);
+    storeCachedContext(cacheKey, title, formatted);
+    return formatted;
+  }
 
   function renderNextStep(action: string, query?: string, project?: string): string {
     const template = nextStepTemplates[action];
@@ -605,7 +616,6 @@ export default function (pi: ExtensionAPI) {
             "▶ sampler project list\n✓ Reutilizando lista de proyectos registrada",
             "info",
           );
-          await injectAgentContext(pi, ctx, cached.title, cached.text);
           return {
             content: [{ type: "text", text: cached.text }],
             details: { action: actionSafe, success: true },
@@ -624,7 +634,8 @@ export default function (pi: ExtensionAPI) {
           .map((line) => line.replace(/\s*\([^)]*\)\s*$/, ""))
           .join("\n");
 
-        const formatted = await injectAgentContext(pi, ctx, "Registered Projects", cleanText);
+        //const formatted = await injectAgentContext(pi, ctx, "Registered Projects", cleanText);
+        const formatted = formatForAgentContext(cleanText);
         if (result.code === 0) {
           storeCachedContext(cacheKey, "Registered Projects", formatted);
         }
@@ -638,10 +649,14 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      if (!query && actionSafe !== "list_projects") {
-        throw new Error(`action=${action} requires a 'query' parameter`);
+      if (!query && actionSafe !== "list_projects" && actionSafe !== "stale") {
+        throw new Error(
+          `action=${action} requires 'query'. ` +
+          (actionSafe === "overview"
+            ? "Pass a file path (relative to project root or absolute), not a project name."
+            : "Pass a symbol name.")
+        );
       }
-
       const resolved = await resolveProject(pi, ctx, explicitProject);
       if (!resolved) {
         throw new Error("Could not resolve or index the current project");
@@ -664,7 +679,7 @@ export default function (pi: ExtensionAPI) {
             `▶ sampler_explore_codebase (${actionSafe})\n✓ Reutilizando resultado previo`,
             "info",
           );
-          await injectAgentContext(pi, ctx, cached.title, cached.text);
+          formatAndCache(cacheKey, cached.title, cached.text);
           return {
             content: [{ type: "text", text: cached.text }],
             details: { action: actionSafe, project: resolved.name, success: true },
@@ -702,9 +717,15 @@ export default function (pi: ExtensionAPI) {
         case "related":
           cmd = `sampler related "${query}" --project "${resolved.name}" --style bars`;
           break;
+
         case "overview":
-          cmd = `sampler overview "${query}" --style bars`;
+          const baseDir = resolved.path || (await getCwdRoot(pi));
+          const absoluteFile = pathUtil.isAbsolute(query!)
+            ? query!
+            : pathUtil.resolve(baseDir, query!);
+          cmd = `sampler overview "${absoluteFile}" --style bars`;
           break;
+
         case "stale":
           cmd = `sampler stale-code "${resolved.name}" --limit 15`;
           break;
